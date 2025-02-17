@@ -1612,7 +1612,7 @@ def refresh_board():
     print(f"    |   {player_display_location[17][1]}   |                                                                                                  |   {player_display_location[33][1]}   |")
     
     # this checks if the players owns any properties, and greys out the button otherwise
-    button_states = [None, None, None, None]
+    button_states = [None, None, None, True]
 
     for i in range(28):
         if property_data[i][3] == player_turn:
@@ -1621,22 +1621,21 @@ def refresh_board():
 
     # similar checks are performed for the other buttons
     if dice_rolled == False:
-        print("    |  💰  💵  🪙    |     ________________     ________________        __  __  __  __      ________________            |  💰  💵  🪙    |")
-        print("    |💵  🪙  💰  💵  |    |                |   |                |    |                     |                |           |💵  🪙  💰  💵  |")
-        print("    |________________|    |  [R]oll  dice  |   |  [P]roperties  |        [E]nd turn   |    | [S]ave & exit  |           |________________|")
-        print("    |            🟧🟧|    |________________|   |________________|    |  __  __  __  __     |________________|           |🟩🟩            |")
-
-    elif current_action == None:
-        print("    |  💰  💵  🪙    |       __  __  __  __     ________________      ________________      ________________            |  💰  💵  🪙    |")
-        print("    |💵  🪙  💰  💵  |    |                    |                |    |                |    |                |           |💵  🪙  💰  💵  |")
-        print("    |________________|       [R]oll  dice  |   |  [P]roperties  |    |   [E]nd turn   |    | [S]ave & exit  |           |________________|")
-        print("    |            🟧🟧|    |  __  __  __  __    |________________|    |________________|    |________________|           |🟩🟩            |")
-
+        button_states[0] = True
     else:
-        print("    |  💰  💵  🪙    |       __  __  __  __     ________________        __  __  __  __      ________________            |  💰  💵  🪙    |")
-        print("    |💵  🪙  💰  💵  |    |                    |                |    |                     |                |           |💵  🪙  💰  💵  |")
-        print("    |________________|       [R]oll  dice  |   |  [P]roperties  |        [E]nd turn   |    | [S]ave & exit  |           |________________|")
-        print("    |            🟧🟧|    |  __  __  __  __    |________________|    |  __  __  __  __     |________________|           |🟩🟩            |")
+        button_states[0] = False
+
+    if current_action == None and dice_rolled == True:
+        button_states[2] = True
+    else:
+        button_states[2] = False
+
+    button_list = create_button_prompts(["Roll dice","Properties", "End turn", "Save & Exit"], button_states)
+    print(f"    |  💰  💵  🪙    |{button_list[0]}             |  💰  💵  🪙    |")
+    print(f"    |💵  🪙  💰  💵  |{button_list[1]}             |💵  🪙  💰  💵  |")
+    print(f"    |________________|{button_list[2]}             |________________|")
+    print(f"    |            🟧🟧|{button_list[3]}             |🟩🟩            |")
+
 
     print("    | Bow Street 🟧🟧|                                                                                                  |🟩🟩  Bond St.  |")
     if current_action == "property" and player[player_turn]["$$$"] >= property_data[return_number_from_pos[player[player_turn]["pos"]]][2]:  
@@ -1666,18 +1665,57 @@ def refresh_board():
     print(f"    | {player_display_location[14][1]} 🟪🟪|                                                                                                  |    \_\{player_display_location[36][1]}|")
     print("    |____________🟪🟪|                                                                                                  |________________|")
     print("    |            🟪🟪|                                                                                                  |🟦🟦            |")
-    print("    | Whitehall  🟪🟪|                                                                                                  |🟦🟦 Park Lane  |")
-    print("    |   $140     🟪🟪|                                                                                                  |🟦🟦    $350    |")
-    print(f"    | {player_display_location[13][1]} 🟪🟪|                                                                                                  |🟦🟦 {player_display_location[37][1]} |")
+    print("    | Whitehall  🟪🟪|                                                                                                  |🟦🟦 Park Lane  |")    
+
+    extra_space = ""
+
+    # this checks if 4 players are playing, and displays the players' money descending from here. The first player will always be at the top as it is based on "players_playing"
+    # it will always do 2 players, but if "players_playing - 2" provides a valid player (1, or 2) then it displays that, and another check at the top if there are four players ("players_playing - 3")
+    # note that the "player" dictionary starts from 1
+    if players_playing - 3 > 0:
+        extra_space = ""
+        for i in range(12 - len(str(player[players_playing - 3]["$$$"]))):
+            extra_space += " "
+
+        print(f"    |   $140     🟪🟪|                                                                                  player {players_playing - 3} | {player[players_playing - 3]['char']}   |🟦🟦    $350    |")
+        print(f"    | {player_display_location[13][1]} 🟪🟪|                                                                                  ${player[players_playing - 3]['$$$']}{extra_space}   |🟦🟦 {player_display_location[37][1]} |")
+    else:
+        print(f"    |   $140     🟪🟪|                                                                                                  |🟦🟦    $350    |")
+        print(f"    | {player_display_location[13][1]} 🟪🟪|                                                                                                  |🟦🟦 {player_display_location[37][1]} |")
     print("    |____________🟪🟪|                                                                                                  |🟦🟦____________|")
-    print("    | Electric Co.   |                                                                                                  | ∖  ⁄ SUPER TAX |")
-    print("    | $150       |\  |                                                                                                  |- 💎 -   - $100 |")
+
+
+    if players_playing - 2 > 0:
+        extra_space = ""
+        for i in range(12 - len(str(player[players_playing - 2]["$$$"]))):
+            extra_space += " "
+
+        print(f"    | Electric Co.   |                                                                                  player {players_playing - 2} | {player[players_playing - 2]['char']}   | ∖  ⁄ SUPER TAX |")
+        print(f"    | $150       |\  |                                                                                  ${player[players_playing - 2]['$$$']}{extra_space}   |- 💎 -   - $100 |")
+    else:
+        print(f"    | Electric Co.   |                                                                                                  | ∖  ⁄ SUPER TAX |")
+        print(f"    | $150       |\  |                                                                                                  |- 💎 -   - $100 |")
+
     print(f"    |          __| \ |                                                                                                  |/¯¯¯¯\{player_display_location[38][1]}|")
-    print(f"    |{player_display_location[12][1]}\ |¯¯ |                                                                                                  | (⁐⁐) |         |")
-    print("    |___________\|___|                                                                                                  |\____/__________|")
-    print("    |            🟪🟪|                                                                                                  |🟦🟦            |")
-    print("    | Pall Mall  🟪🟪|                                                                                                  |🟦🟦   Mayfair  |")
-    print("    |   $140     🟪🟪|                                                                                                  |🟦🟦    $400    |")
+    
+    extra_space = ""
+    for i in range(12 - len(str(player[players_playing - 1]["$$$"]))):
+        extra_space += " "
+
+    print(f"    |{player_display_location[12][1]}\ |¯¯ |                                                                                  player {players_playing - 1} | {player[players_playing - 1]['char']}   | (⁐⁐) |         |")   
+    print(f"    |___________\|___|                                                                                  ${player[players_playing - 1]['$$$']}{extra_space}   |\____/__________|")
+    
+
+    print(f"    |            🟪🟪|                                                                                                  |🟦🟦            |")
+
+
+    extra_space = ""
+    for i in range(12 - len(str(player[players_playing]["$$$"]))):
+        extra_space += " "
+
+    print(f"    | Pall Mall  🟪🟪|                                                                                  player {players_playing} | {player[players_playing]['char']}   |🟦🟦   Mayfair  |")
+    print(f"    |   $140     🟪🟪|                                                                                  ${player[players_playing]['$$$']}{extra_space}   |🟦🟦    $400    |")
+
     print(f"    | {player_display_location[11][1]} 🟪🟪|                                                                                                  |🟦🟦 {player_display_location[39][1]} |")
     print("    |____________🟪🟪|__________ __________ __________ __________ __________ __________ __________ __________ __________|🟦🟦____________|")
     print("    |      | ║ ║ ║ ║ |🟦🟦🟦🟦🟦|🟦🟦🟦🟦🟦|  CHANCE  |🟦🟦🟦🟦🟦|  King's  |          |🟫🟫🟫🟫🟫| COMUNITY |🟫🟫🟫🟫🟫|  ____    ____  |")
@@ -1769,7 +1807,7 @@ def new_game():
     print()
     print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
     print()
-    print("    the board is this wide, adjust until this whole line doesn't wrap around the screen.")
+    print("    the board is the length of this line, adjust until the line doesn't wrap around your screen.")
     print("    ", end = "")
 
 
@@ -2063,7 +2101,6 @@ def continue_game():
 ############################## INPUT DETECTION ##############################
 
 def save_game():
-    if current_action == None:
 
     # this is searching for a save file, creating it if it doesn't exist
     try: 
@@ -2114,6 +2151,7 @@ while True:
     # the reason for this check is that detecting user input pauses the program, and so I disable it for the animations
     if current_die_rolling == 0:
         user_input = input()
+        input_confirmation = True
     else:
         if current_die_rolling != 3:
              sleep(0.25)
@@ -2162,7 +2200,7 @@ while True:
                         dice_rolled = True
 
     # home screen commands
-    if current_screen == "home_screen":
+    if current_screen == "home_screen" and input_confirmation == True:
 
         if user_input in ["devmode", "dev mode"]:
             dev_mode = True
@@ -2182,7 +2220,7 @@ while True:
             print("\n    ", end = "")
 
     # player select commands
-    elif current_screen == "player_select":
+    elif current_screen == "player_select" and input_confirmation == True:
         if user_input in ["2", "3", "4"]:
 
             players_playing = int(user_input)
@@ -2235,7 +2273,9 @@ while True:
                     x += 2
                 else:
                     x += 1
-
+            
+            if user_input == "  ":
+                print("\n    === nice try. ===\n\n    ", end = "")
             if x == 2:
 
                 player[player_turn]["char"] = user_input
@@ -2256,7 +2296,7 @@ while True:
             print("\n    ", end = "")
 
     # player notice acknowledgment
-    elif current_screen == "game_notice":
+    elif current_screen == "game_notice" and input_confirmation == True:
         refresh_board()
         
         if current_action == "chance":
@@ -2265,7 +2305,7 @@ while True:
                 dice_rolled = True
 
     # game commands (the 'user_input != ""' is for when the dice are rolling, since the input is skipped and reset to nothing)
-    elif current_screen == "game" and user_input != "":
+    elif current_screen == "game" and input_confirmation == True:
         if user_input in ["r", "R"]:
             if dice_rolled == False:
                 dice_countdown = 7
@@ -2397,7 +2437,7 @@ while True:
             print("    === command not recognised ===")
             print("\n    ", end = "")
 
-    elif current_screen == "bidding":
+    elif current_screen == "bidding" and input_confirmation == True:
 
         try:
             int(user_input)
@@ -2451,7 +2491,7 @@ while True:
                 print("\n    ", end = "")
 
     # bankruptcy screen commands
-    elif current_screen == "raise_money_screen":
+    elif current_screen == "raise_money_screen" and input_confirmation == True:
 
         # makes sure that the user entered a number, than makes sure that the player owns that property
         try:
@@ -2460,12 +2500,12 @@ while True:
             print("    === command not recognised. please enter the number to the left of the desired property ===")
             print("\n    ", end = "")
         else:
-            if property_data[int(conversion_dictionary[user_input])][3] == player[player_turn]["pos"]:
+            if property_data[int(return_number_from_pos[user_input])][3] == player[player_turn]["pos"]:
                 display_property(int(user_input))
             else:
                 print("    === you don't own that property. please enter the number to the left of the desired property ===")
 
-    elif current_screen == "bankruptcy":
+    elif current_screen == "bankruptcy" and input_confirmation == True:
         _count = 0
 
         # this is checking how many players remain after a bankruptcy
@@ -2511,4 +2551,5 @@ while True:
             print("\n    ", end = "")
             sys.exit()
 
+    input_confirmation = False
     user_input = ""
