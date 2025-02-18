@@ -254,23 +254,44 @@ def update_player_position(_pos, _action = "add"):
 
     elif _action == "remove":
 
+        if dev_mode == True:
+            print("-----------------------")
+            print(f"the previous space was modified from: {player_display_location[_pos]} ║ pos {_pos}")
+
         # since if the player is going to jail they don't go on all the spaces on the way, this code is skipped
         if player[player_turn]["pos"] != 40:
-            if dev_mode == True:
-                print("-----------------------")
-                print(f"the previous space was modified from: {player_display_location[_pos]} ║ pos {_pos}")
+
             player_display_location[_pos][7] -= 1
             player_display_location[_pos][player_turn + 2] = False
-            if dev_mode == True:
-                print(f"the previous space was modified to: {player_display_location[_pos]} ║ pos {_pos}")
-                print("-----------------------")
 
         else:
             player_display_location[player[player_turn]["last pos"]][7] -= 1
             player_display_location[player[player_turn]["last pos"]][player_turn + 2] = False
 
-    # used because I didn't know how to use iterables, now I know but can't be bothered to change it
-    x = 0
+        if dev_mode == True:
+            print(f"the previous space was modified to: {player_display_location[_pos]} ║ pos {_pos}")
+            print("-----------------------")
+
+    player_itr = iter(player)
+
+    # this works by adding the surrounding spaces, and when receives a 'p' it adds the next player currently at the space
+    # it is dependent on the order not to overuse "next(player_itr):
+    def update_displayed_art(order):
+        string = ""
+        for char in order:
+            if char != "p":
+                string += char
+            else:
+                x = next(player_itr)
+                while property_data[_pos][x + 3] != True:
+                    x = next(player_itr)
+                string += player[x]["char"]
+        
+        property_data[_pos][1] = string
+                
+
+    if player_display_location[_pos][7] == 0:
+        player_display_location[_pos][1] = player_display_location[_pos][0]
 
     #################### REGULAR SPACES ####################
 
@@ -278,122 +299,46 @@ def update_player_position(_pos, _action = "add"):
     # all the regulars can be done in the same way so I'll start with specifying them first
     if player_display_location[_pos][2] == "regular":
 
-        if player_display_location[_pos][7] == 0:
-            player_display_location[_pos][1] = "          "
-
         # (layout for reference: |    💎    |)
-        elif player_display_location[_pos][7] == 1:
-            player_display_location[_pos][1] = "    "
-            for ii in range(players_playing):
-                if player_display_location[_pos][ii + 3 + x] == True:
-                    player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                    x = ii + x + 1
-                    break
-            player_display_location[_pos][1] += "    "
+        if player_display_location[_pos][7] == 1:
+            update_displayed_art("    p    ")
 
         # (layout for reference: |  💎  💎  |)
         elif player_display_location[_pos][7] == 2:
-            player_display_location[_pos][1] = ""
-
-            # this is performed twice with accompanying whitespace then the final whitespace is added to the end
-            for i in range(2):
-                player_display_location[_pos][1] += "  "
-
-                # this checks what players are currently at the space, and adds their icon to the display (see layout)
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-
-                        # this makes sure that the for loop continues from where it previously stopped
-                        x = ii + x + 1
-
-                        # stops the loop once a player has been found
-                        break
-            player_display_location[_pos][1] += "  "
+            update_displayed_art("  p  p  ")
 
         # (layout for reference: | 💎 💎 💎 |)
-        # this is the same as the previous one, but with an extra player icon, so it won't be commented
         elif player_display_location[_pos][7] == 3:
-
-            player_display_location[_pos][1] = ""
-
-            for i in range(3):
-
-                player_display_location[_pos][1] += " "
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-            player_display_location[_pos][1] += " "
+            update_displayed_art(" p p p ")
 
         # (layout for reference: |💎 💎💎 💎|)
         # since all four characters are at the same spot, they are just added to the string
         elif player_display_location[_pos][7] == 4:
-            player_display_location[_pos][1] = (f"{player[1]['char']} {player[2]['char']}{player[3]['char']} {player[4]['char']}")
+            update_displayed_art("p pp p")
 
     #################### IRREGULAR SPACES ####################
 
     elif player_display_location[_pos][2] == "irregular":
 
-        # if there are no players (a 'remove' cycle), then the code just sets the art back to default, and skips the rest
-        if player_display_location[_pos][7] == 0:
-            player_display_location[_pos][1] = player_display_location[_pos][0]
-
         ########## |    ()    | [chance @ space 7] ##########
-
-        elif _pos == 7:
+        if _pos == 7:
             if player_display_location[_pos][7] == 1:
 
                 # (layout for reference: | 💎 ()    |)
                 if player_display_location[_pos][7] == 1:
-                    player_display_location[_pos][1] = " "
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
-                    player_display_location[_pos][1] += " ()    "
+                    update_displayed_art(" p ()    ")
 
                 # (layout for reference: | 💎 () 💎 |)
                 elif player_display_location[_pos][7] == 2:
-                    player_display_location[_pos][1] = " "
-
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
-                    player_display_location[_pos][1] += " () "
-
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
-                    player_display_location[_pos][1] += " "
+                    update_displayed_art(" p () p ")
 
                 # (layout for reference: |💎💎() 💎 |)
                 elif player_display_location[_pos][7] == 3:
-                    player_display_location[_pos][1] = ""
-                    for i in range(2):
-                        for ii in range(players_playing):
-                            if player_display_location[_pos][ii + 3 + x] == True:
-                                player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                                x = ii + x + 1
-                                break
-
-                    player_display_location[_pos][1] += "() "
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
-                    player_display_location[_pos][1] += " "
+                    update_displayed_art("pp() p ")
 
                 # (layout for reference: |💎💎()💎💎|)
                 elif player_display_location[_pos][7] == 4:
-                    player_display_location[_pos][1] = (player[1]["char"] + player[2]["char"] + "()" + player[3]["char"] + player[4]["char"])
+                    update_displayed_art("pp()pp")
 
         ########## |    / /   | [chance @ space 22] ##########
 
@@ -401,52 +346,19 @@ def update_player_position(_pos, _action = "add"):
 
             # (layout for reference: | 💎 / /   |)
             if player_display_location[_pos][7] == 1:
-                player_display_location[_pos][1] = " "
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " / /   "
+                update_displayed_art(" p / /   ")
 
             # (layout for reference: | 💎 / /💎 |)
             elif player_display_location[_pos][7] == 2:
-                player_display_location[_pos][1] = " "
-
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " / /"
-
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " "
+                update_displayed_art(" p / /p ")
 
             # (layout for reference: |💎💎/ /💎 |)
             elif player_display_location[_pos][7] == 3:
-                player_display_location[_pos][1] = ""
-                for i in range(2):
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
-                player_display_location[_pos][1] += "/ /"
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " "
+                update_displayed_art("pp/ /p ")
 
             # (layout for reference: |💎💎/ 💎💎|)
             elif player_display_location[_pos][7] == 4:
-                player_display_location[_pos][1] = (player[1]["char"] + player[2]["char"] + "/ " + player[3]["char"] + player[4]["char"])
+                update_displayed_art("pp/ pp")
 
         ########## |  \_|    | [chance @ space 36]
 
@@ -454,105 +366,42 @@ def update_player_position(_pos, _action = "add"):
 
             # (layout for reference : |  \_| 💎 |)
             if player_display_location[_pos][7] == 1:
-                player_display_location[_pos][1] = "  \_| "
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                player_display_location[_pos][1] += " "
+                update_displayed_art(" \_| p p")
 
             # (layout for reference : |💎\_| 💎 |)
             elif player_display_location[_pos][7] == 2:
-                player_display_location = ""
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += "\_| "
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " "
+                update_displayed_art("p\_| p ")
 
             # (layout for reference : |💎\_|💎💎|)
             elif player_display_location[_pos][7] == 3:
-                player_display_location = ""
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += "\_|"
-                for i in range(2):
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
+                update_displayed_art("p\_|pp")
 
             # (layout for reference : |💎💎💎|💎|)
             elif player_display_location[_pos][7] == 4:
-                player_display_location[_pos][1] = (player[1]["char"] + player[2]["char"] + player[3]["char"] + "|" + player[4]["char"])
+                update_displayed_art("ppp|p")
 
         ########## | ║ ║ ║ ║ | [jail @ space 40 (in just visiting)] ##########
-
         if _pos == 40:
             player_display_location[_pos][1] = ""
 
             # (layout for reference: | ║ 💎║ ║ |)
             if player_display_location[_pos][7] == 1:
-                player_display_location[_pos][1] = " ║ "
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += "║ ║ "
+               update_displayed_art(" ║ p║ ║ ")
 
             # (layout for reference: | 💎║ ║💎 |)
             elif player_display_location[_pos][7] == 2:
-                player_display_location[_pos][1] = " "
-
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-
-                player_display_location[_pos][1] += "║ ║"
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " "
+                update_displayed_art(" p║ ║p |")
 
             # (layout for reference: | 💎💎║💎 |)
             elif player_display_location[_pos][7] == 3:
-                player_display_location[_pos][1] = " "
-                for i in range(2):
-                    for ii in range(players_playing):
-                        if player_display_location[_pos][ii + 3 + x] == True:
-                            player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                            x = ii + x + 1
-                            break
-
-                player_display_location[_pos][1] += "║"
-                for ii in range(players_playing):
-                    if player_display_location[_pos][ii + 3 + x] == True:
-                        player_display_location[_pos][1] += player[ii + 1 + x]["char"]
-                        x = ii + x + 1
-                        break
-                player_display_location[_pos][1] += " "
+                update_displayed_art(" pp║p ")
 
             # (layout for reference: |💎💎 💎💎|)
             elif player_display_location[_pos][7] == 4:
-                player_display_location[_pos][1] = (player[1]["char"] + player[2]["char"] + " " + player[3]["char"] + player[4]["char"])
+                update_displayed_art("pp pp")
+
     if dev_mode == True:
-        print(player_display_location[_pos], end="")
-        print(f"  ║  the function was: {_action}. the current player was: {player[player_turn]['char']}")
+        print(f"{player_display_location[_pos]}  ║  the function was: {_action}. the current player was: {player[player_turn]['char']}")
 
 
 
@@ -561,7 +410,14 @@ def update_player_position(_pos, _action = "add"):
 
 # this function is called when a player is in debt, and displays the properties that they own, and the amount that they owe
 def player_is_broke(_player, _debt):
-    if player[_player]["total properties"] != 0:
+    
+    player_has_properties = False
+
+    for i in range(28):
+        if property_data[i][3] == _player:
+            player_has_properties = True
+
+    if player_has_properties == True:
         if dev_mode != True:
             os.system("cls")
        
@@ -1751,7 +1607,7 @@ def refresh_board():
         print("    \"setdiceroll\"")
         print("    \"bankruptcy\"")
         print("    \"propertybid\"")
-        print("    \"showpropdict\"")
+        print("    \"showproplist\"")
         print("    \"showchangeprops\"")
         print("    \"setplayerprops\"")
         print()
@@ -2007,7 +1863,6 @@ def continue_game():
 
                         # stores the position of the start of the integer
                         start_of_int = _counter + 2
-
                    
                 elif inside_string == True:
                     if is_key == True:
@@ -2449,7 +2304,7 @@ while True:
             skipped_bids = 0
             display_property(auctioned_property, is_auction = True)
 
-        elif user_input == "showpropdict" and dev_mode == True:
+        elif user_input == "showproplist" and dev_mode == True:
             for i in property_data:
                 print(i)
 
@@ -2460,6 +2315,16 @@ while True:
 
         elif user_input == "setplayerprops" and dev_mode == True:
             x = int(input("    === what player: "))
+            xx = input("    === what property (commands: 'all', 'done'): ")
+            while xx == "done":
+                if xx == "all":
+                    for i in range(28):
+                        property_data[i][3] = x
+                else:
+                    property_data[int(xx)][3] = i
+                xx = int(input("    === what property (commands: 'all', 'done'): "))
+            refresh_board()
+
         else:
             print("    === command not recognised ===")
             print("\n    ", end = "")
@@ -2471,19 +2336,10 @@ while True:
         except:
             if user_input in ["s", "S"]:
                 skipped_bids += 1
-                if skipped_bids == players_playing - 1:
+                if skipped_bids == players_playing - 1 and bid_number >= bid_number - 1:
                     display_property(auctioned_property, is_auction = "finished")
 
                     player[player_turn]["$$$"] -= property_data[auctioned_property][2]
-                    property_data[auctioned_property][3]  = player_turn
-                    player[player_turn]["total properties"] += 1
-
-                    if property_data[auctioned_property][1] == "utility":
-                        player[player_turn]["utilities owned"] += 1
-
-                    elif property_data[auctioned_property][1] == "station":
-                        player[player_turn]["stations owned"] += 1
-
                     refresh_board()
 
             else:
