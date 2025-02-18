@@ -630,10 +630,13 @@ def display_property_list(_player, clear = True):
     # since "_count" is separate from the property data, this dictionary will store the conversions
     conversion_dictionary = {}
 
+    stations_displayed = False
+    utilities_displayed = False
+
     # this checks what stations the player owns and displays them first
     for i in [2, 10, 17, 25]:
         if property_data[i][3] == player[_player]["char"]:
-            sleep(0.25)
+            sleep(0.15)
             _count += 1
             print(f"    ║     {_count} | {property_data[i][0]}", end = "")
                 
@@ -642,10 +645,16 @@ def display_property_list(_player, clear = True):
             for ii in range(22 - len(property_data[i][0])):
                 print(" ", end = "")
             print("|                        ║")
+            stations_displayed = True
+
+    # displays an extra blank line to separate the stations from the other cards
+    if stations_displayed == True:
+        print("    ║                                                                ║")
+       
 
     for i in [7, 20]:
         if property_data[i][3] == player[_player]["char"]:
-            sleep(0.25)
+            sleep(0.15)
             _count += 1
             print(f"    ║     {_count} | {property_data[i][0]}", end = "")
                 
@@ -654,10 +663,14 @@ def display_property_list(_player, clear = True):
             for ii in range(22 - len(property_data[i][0])):
                 print(" ", end = "")
             print("|                        ║")
+            utilities_displayed = True
+
+    if utilities_displayed == True:
+        print("    ║                                                                ║")
 
     for i in range(27):
         if property_data[i][3] == player[_player]["char"] and property_data[i][1] == "property":
-            sleep(0.25)
+            sleep(0.15)
             _count += 1
             conversion_dictionary[_count] = i
             if _count >= 10:
@@ -1407,7 +1420,7 @@ def player_action(_pos):
     elif _pos not in [0, 10, 20, 40]:
         _prop = return_number_from_pos[player[player_turn]["pos"]]
         _owner = property_data[_prop][3]
-        if property_data[_prop][3] == None:
+        if property_data[_prop][3] == 0:
             current_action = "property"
         else:
             if property_data[_prop][4] in [2, 3, 4, 5, 6]: # upgrade 1 is for colour sets
@@ -1739,6 +1752,8 @@ def refresh_board():
         print("    \"bankruptcy\"")
         print("    \"propertybid\"")
         print("    \"showpropdict\"")
+        print("    \"showchangeprops\"")
+        print("    \"setplayerprops\"")
         print()
         
     if passed_go == True:
@@ -2215,6 +2230,10 @@ while True:
 
         elif user_input in ["c", "C"]:
               continue_game() 
+
+        elif "nick" in user_input.lower():
+            os.system('echo -e "\033[43;37m"')
+            homescreen()
         else:
             print("    === command not recognised === ")
             print("\n    ", end = "")
@@ -2433,6 +2452,14 @@ while True:
         elif user_input == "showpropdict" and dev_mode == True:
             for i in property_data:
                 print(i)
+
+        elif user_input == "showchangedprops" and dev_mode == True:
+            for i in property_data:
+                if i[3] == player_turn:
+                    print(i)
+
+        elif user_input == "setplayerprops" and dev_mode == True:
+            x = int(input("    === what player: "))
         else:
             print("    === command not recognised ===")
             print("\n    ", end = "")
