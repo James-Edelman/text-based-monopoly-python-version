@@ -1,7 +1,7 @@
 ﻿# importing the required functions for operating terminal
-import ast
+from ast import literal_eval
 import os
-import random
+from random import randint, shuffle
 import sys
 import math
 import time
@@ -277,13 +277,16 @@ def update_player_position(_pos, _action = "add"):
     # this works by adding the surrounding spaces, and when receives a 'p' it adds the next player currently at the space
     # it is dependent on the order not to overuse "next(player_itr):
     def update_displayed_art(order):
+
         string = ""
+        x = 0
+
         for char in order:
             if char != "p":
                 string += char
             else:
                 x = next(player_itr)
-                while property_data[_pos][x + 3] != True:
+                while player_display_location[_pos][x + 2] != True:
                     x = next(player_itr)
                 string += player[x]["char"]
         
@@ -563,6 +566,9 @@ def display_property_list(_player, clear = True):
     print("    ║                                                                ║")
     print("    ╚════════════════════════════════════════════════════════════════╝")
     print("    ", end="")
+
+
+
 
 ############################## BIDDING PROCCESS DISPLAY FOR STREETS ############################## 
 
@@ -1052,11 +1058,17 @@ def chance_card_actions():
     # only the number at the start is recorded, as it is unique for each different action
     try:
         drawn_card = next(chance_cards_itr)
-        print(f"=== {drawn_card[2:]} ===")
+        for i in chance_cards:
+            if i[:2] == drawn_card:
+                print(f"=== {i[2:]} ===")
+                break
     except:
         chance_cards_itr = iter(chance_cards)
         drawn_card = next(chance_cards_itr)
-        print(f"=== {drawn_card[2:]} ===")
+        for i in chance_cards:
+            if i[:2] == drawn_card:
+                print(f"=== {i[2:]} ===")
+                break
 
     # stripping the variable down to the number leading
     drawn_card = int(drawn_card[:2])
@@ -1165,11 +1177,18 @@ def community_chest_card_actions():
 
     try:
         drawn_card = next(community_chest_cards_itr)
-        print(f"=== {drawn_card[2:]} ===")
+        for i in community_chest_cards:
+            if i[:2] == drawn_card:
+                print(f"=== {i[2:]} ===")
+                break
+        
     except:
         community_chest_cards_itr = iter(community_chest_cards)
         drawn_card = next(community_chest_cards_itr)
-        print(f"=== {drawn_card[2:]} ===")
+        for i in community_chest_cards:
+            if i[:2] == drawn_card:
+                print(f"=== {i[2:]} ===")
+                break
 
     drawn_card = int(drawn_card[:2])
     if drawn_card == 0:
@@ -1355,9 +1374,9 @@ def dice_roll_animation():
 
         # this generates a random number between 1 and 6, and if it is the same as the previous dice roll, it will generate a new number
         # when the same dice face is shown twice in a row, it has a flickering effect or appears frozen, so this code prevents that
-        x = random.randint(1, 6)
+        x = randint(1, 6)
         while dice_value[1] == x:
-                x = random.randint(1, 6)
+                x = randint(1, 6)
         dice_value[1] = x
 
         # this is the dice rolling animation
@@ -1371,9 +1390,9 @@ def dice_roll_animation():
         print("┌───────────┐   ┌───────────┐")
         print("    │           │   │           │")
 
-        x = random.randint(1, 6)
+        x = randint(1, 6)
         while dice_value[2] == x:
-            x = random.randint(1, 6)
+            x = randint(1, 6)
         dice_value[2] = x
 
         # since the 'doubles' text is next to the dice and not under them, the calculations need to be performed while the lines are getting printed
@@ -1432,6 +1451,7 @@ def dice_roll_animation():
             player[player_turn]["pos"] = 10
 
         else:
+            player[player_turn]["status"] = "jail"
             player[player_turn]["jail time"] += 1
 
         # giving the player some time to check their dice roll
@@ -1608,7 +1628,7 @@ def refresh_board():
         print("    \"bankruptcy\"")
         print("    \"propertybid\"")
         print("    \"showproplist\"")
-        print("    \"showchangeprops\"")
+        print("    \"showchangedprops\"")
         print("    \"setplayerprops\"")
         print()
         
@@ -1653,10 +1673,19 @@ def new_game():
     update_player_position(0)
 
     # reshuffles the chance cards and community chest cards
-    random.shuffle(chance_cards)
-    random.shuffle(community_chest_cards)
-    chance_cards_itr = iter(chance_cards)
-    community_chest_cards_itr = iter(community_chest_cards)
+    shuffle(chance_cards)
+    shuffle(community_chest_cards)
+    
+    # makes an iterable based on the leading number each chance card has (though save as a string)
+    chance_cards_itr = []
+    for i in chance_cards:
+        chance_cards_itr.append(i[:2])
+    chance_cards_itr = iter(chance_cards_itr)
+
+    community_chest_cards_itr = []
+    for i in community_chest_cards:
+        community_chest_cards_itr.append(i[:2])
+    community_chest_cards_itr = iter(community_chest_cards_itr)
 
     start_time = time.time()
 
@@ -1934,7 +1963,7 @@ def continue_game():
                 x = int(_string[:2])
 
                 # found this much simpler way of converting a string (formatted as a list) to an actual list
-                property_data[x] = ast.literal_eval(_string[2:])
+                property_data[x] = literal_eval(_string[2:])
                 player[property_data[x][3]]["total properties"] += 1
         
                 if property_data[x][1] == "station":
@@ -1968,9 +1997,9 @@ def continue_game():
 
 
 
-############################## INPUT DETECTION ##############################
+############################## SAVE GAME ##############################
 
-def save_game():
+def save_game(*variables):
 
     # this is searching for a save file, creating it if it doesn't exist
     try: 
@@ -1982,12 +2011,16 @@ def save_game():
     save_file.write("Please note: strictly no sneaky shenanigans regarding save file manipulation. Not a sigma move >:(\n\n")
             
     # writing out game variables
+    for i in variables:
+        save_file.write(f"{variables[i]} = {eval(variables[i])}")
+    """
+    save_file.write("'Players_playing', 'player_turn', 'doubles_rolled', 'dev_mode'\\n")
     save_file.write(f"{players_playing}, {player_turn}, {doubles_rolled}, {str(dev_mode)}\n")
     save_file.write(f"{str(dice_rolled)}\n")
     save_file.write(f"{current_action}\n")
     for i in player:
         save_file.write(f"{i}{player[i]}\n")
-
+    """
     # printing out the arrangement of the chance and community chest cards
     for i in chance_cards_itr:
 
@@ -2002,15 +2035,52 @@ def save_game():
 
     for _count in range(28):
         if property_data[_count][3] != None:
+
+            # since the "continue_game" code checks for a certain location, an extra space is required for parity
             if _count < 10:
                 save_file.write(f"{_count} {property_data[_count]}\n")
             else:
                 save_file.write(f"{_count}{property_data[_count]}\n")
-            save_file.write(".")
+    save_file.write(".")
 
     save_file.close()
             
     print("    === game saved ===")
+
+
+
+
+############################## SAVING VARIABLES TO SAVE FILE ##############################
+
+def save_game_to_file(*variables):
+    try:
+        save_file = open("save_file.james", "w", encoding="utf-8")
+    except:
+        save_file = open("save_file.james", "x", encoding="utf-8")
+
+    save_file.write("Strictly no sneaky shenanigans regarding save file manipulation. Not a sigma move >:(\n\n")
+
+    for var in variables:
+        var_type = type(eval(var)).__name__
+
+        # strings have quotation marks added as otherwise determining type would be difficult
+        if var_type == "str":
+            save_file.write(f"{var} = \"{eval(var)}\"\n") 
+        elif "iterator" in var_type:
+            _list = []
+            for i in eval(var):
+                _list.append(i)
+            save_file.write(f"{var} = i{_list}\n")
+        else:
+            save_file.write(f"{var} = {eval(var)}\n")
+
+    # since only modified properties are saved, they have their own check
+    for i in range(28):
+        if property_data[i][3] != 0:
+            save_file.write(f"property_data[{i}] = {property_data[i]}\n")
+
+    save_file.close()
+
 
 
 
@@ -2063,8 +2133,7 @@ while True:
                         passed_go = True
 
                     player_action(player[player_turn]["pos"])
-                    current_screen = "game_notice"
-
+                   
                     current_die_rolling = 0
                     if doubles_rolled in [0, 3]:
                         dice_rolled = True
@@ -2087,6 +2156,9 @@ while True:
               continue_game() 
 
         elif "nick" in user_input.lower():
+
+            # this is in dedication to Nick Tho, who always uses his phone with night-shift enabled at the maximum intensity
+            # changes the background to yellow
             os.system('echo -e "\033[43;37m"')
             homescreen()
         else:
@@ -2178,6 +2250,9 @@ while True:
             if doubles_rolled in [0, 3]:
                 dice_rolled = True
 
+    elif current_screen == "save_notice" and input_confirmation == True:
+        homescreen()
+
     # game commands (the 'user_input != ""' is for when the dice are rolling, since the input is skipped and reset to nothing)
     elif current_screen == "game" and input_confirmation == True:
         if user_input in ["r", "R"]:
@@ -2208,11 +2283,11 @@ while True:
                         player_turn = 1
                    
                 refresh_board()
-
+                
         elif user_input in ["s", "S"]:
-            save_game()
-            current_screen = "game_notice"
-            homescreen()
+
+            save_game_to_file("players_playing", "player_turn", "doubles_rolled", "dev_mode", "dice_rolled", "current_action", "player", "chance_cards_itr", "community_chest_cards_itr")
+            current_screen = "save_notice"
 
         elif user_input in ["b", "B"] and current_action == "property":
             player[player_turn]["$$$"] -= property_data[return_number_from_pos[player[player_turn]["pos"]]][2]
@@ -2310,19 +2385,19 @@ while True:
 
         elif user_input == "showchangedprops" and dev_mode == True:
             for i in property_data:
-                if i[3] == player_turn:
+                if i[3] != 0:
                     print(i)
 
         elif user_input == "setplayerprops" and dev_mode == True:
             x = int(input("    === what player: "))
             xx = input("    === what property (commands: 'all', 'done'): ")
-            while xx == "done":
+            while xx != "done":
                 if xx == "all":
                     for i in range(28):
                         property_data[i][3] = x
                 else:
                     property_data[int(xx)][3] = i
-                xx = int(input("    === what property (commands: 'all', 'done'): "))
+                xx = input("    === what property (commands: 'all', 'done'): ") 
             refresh_board()
 
         else:
