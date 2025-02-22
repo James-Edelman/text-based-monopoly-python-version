@@ -7,7 +7,7 @@ import math
 import time
 from time import sleep
 import unicodedata
-from better_iterator import better_iterator, previous
+from better_iterator import better_iter, previous
 
 # setting the terminal name
 sys.stdout.write("\x1b]2;Text-Based Monopoly\x07")
