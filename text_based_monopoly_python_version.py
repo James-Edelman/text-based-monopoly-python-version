@@ -1993,7 +1993,27 @@ def continue_game():
         print("    the board is this wide, adjust until this whole line doesn't wrap around the screen.")
         print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
         print("    ", end = "")
+
+def read_save(_file, _encoding = "utf-8"):
+    testfile = open(_file, encoding = _encoding)
+
+    # each line contains a single variable
+    for _line in testfile:
+        _var = ""
+
+        # this goes through the line and adds it to the variable name until the "=", then the rest is converted to a value
+        for _count in range(len(_line.strip())):
+            if _line[_count + 1] != "=":
+                _var += _line[_count]
+            else: 
                 
+                # the only exception would be if it is an iterator ("i[1, 2, 3, 4]"), so the extra character is skipped
+                try:
+                    _value = literal_eval(_line[_count + 3:].strip())
+                except:
+                    _value = iter(literal_eval(_line[_count + 4:].strip()))
+                globals()[_var] = _value
+                break           
 
 
 
@@ -2153,7 +2173,7 @@ while True:
             new_game_select()
 
         elif user_input in ["c", "C"]:
-              continue_game() 
+              read_save("save_file.james", "utf-8") 
 
         elif "nick" in user_input.lower():
 
