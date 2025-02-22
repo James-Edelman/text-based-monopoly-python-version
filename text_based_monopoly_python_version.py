@@ -7,6 +7,7 @@ import math
 import time
 from time import sleep
 import unicodedata
+from better_iterator import better_iterator, previous
 
 # setting the terminal name
 sys.stdout.write("\x1b]2;Text-Based Monopoly\x07")
@@ -18,6 +19,7 @@ dice_value = [None, 0, 0, 0]
 dev_mode = False
 house_total = 32
 hotel_total = 12
+time_played = 0
 
 # the players' icons can only appear in certain points, so this list will have the default and modified art for the game board
 # the default space is blank but there are some special cases that are specified individually
@@ -72,27 +74,6 @@ player_turn_display[1] = [" ___    ", "/__ |   ", " _| |_  ", "|_____| "]
 player_turn_display[2] = [" _----_ ", "/__/  / ", " /  /___", "|______|"]
 player_turn_display[3] = [" ______ ", "|____  \\", " |___ ⟨⁐", "|______/"]
 player_turn_display[4] = ["__  __  ", "| || |_ ", "|___  _|", "   |_|  "]
-
-# these are all the messages for chance and community chest cards
-# note: the numbers at the start are for saving the arrangement of the shuffled cards
-chance_cards = [
-    "0 Advance to go (collect $200)",
-    "1 Advance to Trafalgar Square. If you pass go, collect $200",
-    "2 Advance to Pall Mall. If you pass go, collect $200",
-    "3 Advance to the nearest utility. If unowned, you may buy it from the bank. If owned, throw the dice and pay owner 10x dice roll",
-    "4 Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise",
-    "4 Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise",
-    "5 Bank pays you dividend of $50",
-    "6 Get out of jail free. This card may be kept until needed or traded",
-    "7 Go back three spaces",
-    "8 Go directly to jail. Do not pass go, do not collect $200",
-    "9 Make general repairs on all your property: For each house pay $25, for each hotel pay 100",
-    "10Take a trip to Kings Cross Station. If you pass go, collect $200.",
-    "11Advance to Mayfair",
-    "12You have been elected chairman of the board. Pay each player $50",
-    "13Your building loan matures. Collect $150",
-    "14Speeding fine $15",
-]
 
 community_chest_cards = [
     "0 Advance to go (collect $200)",
@@ -277,6 +258,7 @@ def update_player_position(_pos, _action = "add"):
     # this works by adding the surrounding spaces, and when receives a 'p' it adds the next player currently at the space
     # it is dependent on the order not to overuse "next(player_itr):
     def update_displayed_art(order):
+        global player_display_location
 
         string = ""
         x = 0
@@ -290,7 +272,7 @@ def update_player_position(_pos, _action = "add"):
                     x = next(player_itr)
                 string += player[x]["char"]
         
-        property_data[_pos][1] = string
+        player_display_location[_pos][1] = string
                 
 
     if player_display_location[_pos][7] == 0:
@@ -472,6 +454,8 @@ def player_is_broke(_player, _debt):
 
 
 
+############################## DISPLAY INDIVIDUAL PROPERTY ##############################
+
 def display_property_list(_player, clear = True):
     if clear == True:
         os.system("cls")
@@ -566,25 +550,6 @@ def display_property_list(_player, clear = True):
     print("    ║                                                                ║")
     print("    ╚════════════════════════════════════════════════════════════════╝")
     print("    ", end="")
-
-
-
-
-############################## BIDDING PROCCESS DISPLAY FOR STREETS ############################## 
-
-# part of the notice used while displaying a property during bidding
-# this code exists since for properties, the same line is repeated four times depending on the colour, so just listing the notice wouldn't be the best solution
-# this performs the check solely for those for lines, where if it is a bid this will be added to the end
-
-notice = ["      ║                                                                ║",
-          "      ║                             NOTICE:                            ║",
-          "      ║                                                                ║",
-          "      ║   you can bid more than your current cash, and go into debt.   ║"]
-
-def display_bidding_notice(_i_value, _is_auction):
-    if _is_auction in [True, "finished"]:
-        print(notice[_i_value], end = "")
-    print()
 
 
 
@@ -851,6 +816,16 @@ def display_property(_prop_num, is_auction = False):
         print("    └──────────────────────────────┘")
 
     else:
+        notice = ["      ║                                                                ║",
+          "      ║                             NOTICE:                            ║",
+          "      ║                                                                ║",
+          "      ║   you can bid more than your current cash, and go into debt.   ║"]
+
+        def display_bidding_notice(_i_value, _is_auction):
+            if _is_auction in [True, "finished"]:
+                print(notice[_i_value], end = "")
+            print()
+
         extra_space = [0, 0, 0]
 
         if is_auction in [True, "finished"]:
@@ -1047,180 +1022,236 @@ def display_property(_prop_num, is_auction = False):
 
 ############################## CHANCE CARDS ACTION ##############################
 
-def chance_card_actions():
-    global doubles_rolled
-    global player
-    global current_screen
+class chance_cards_class():
+    
+    def __init__(self):
+        self.drawn_card = None
 
-    current_screen = "game_notice"
+        # these are all the messages for chance and community chest cards
+        # note: the numbers at the start are for saving the arrangement of the shuffled cards
+        self.cards = [
+                      "0 Advance to go (collect $200)",
+                      "1 Advance to Trafalgar Square. If you pass go, collect $200",
+                      "2 Advance to Pall Mall. If you pass go, collect $200",
+                      "3 Advance to the nearest utility. If unowned, you may buy it from the bank. If owned, throw the dice and pay owner 10x dice roll",
+                      "4 Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise",
+                      "4 Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise",
+                      "5 Bank pays you dividend of $50",
+                      "6 Get out of jail free. This card may be kept until needed or traded",
+                      "7 Go back three spaces",
+                      "8 Go directly to jail. Do not pass go, do not collect $200",
+                      "9 Make general repairs on all your property: For each house pay $25, for each hotel pay 100",
+                      "10Take a trip to Kings Cross Station. If you pass go, collect $200.",
+                      "11Advance to Mayfair",
+                      "12You have been elected chairman of the board. Pay each player $50",
+                      "13Your building loan matures. Collect $150",
+                      "14Speeding fine $15",
+        ]
+        shuffle(self.cards)
+        x = []
+        for i in self.cards: x.append(self.cards[i][:2])
+        
+        self.shuffled_cards = [x]
+        self.iter_pos = 0
 
-    # this draws the next chance card, and if the iterator has ran out, recreates it
-    # only the number at the start is recorded, as it is unique for each different action
-    try:
-        drawn_card = next(chance_cards_itr)
-        for i in chance_cards:
-            if i[:2] == drawn_card:
-                print(f"=== {i[2:]} ===")
-                break
-    except:
-        chance_cards_itr = iter(chance_cards)
-        drawn_card = next(chance_cards_itr)
-        for i in chance_cards:
-            if i[:2] == drawn_card:
-                print(f"=== {i[2:]} ===")
-                break
+    def __next__(self):
+        iter_pos += 1
+        return(self.shuffled_cards[iter_pos])
 
-    # stripping the variable down to the number leading
-    drawn_card = int(drawn_card[:2])
-    if drawn_card == 0:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 0
-        player[player_turn]["$$$"] += 200
+    def draw_card(self):
 
-    elif drawn_card == 1:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 24
+        global chance_cards_itr
+        
+        # this draws the next chance card, and if the iterator has ran out, recreates it
+        # the card with the corresponding number is printed
+        try:
+            self.drawn_card = next(chance_cards_itr)
+            for i in self.cards:
+                if i[:2] == self.drawn_card:
+                    print(f"=== {i[2:]} ===")
+                    break
+        except:
 
-        if player[player_turn]["last pos"] > 24:
+            # makes an iterable based on the leading number each chance/community chest card has (though save as a string)
+            chance_cards_itr = []
+            for i in self.cards:
+                chance_cards_itr.append(i[:2])
+            chance_cards_itr = iter(chance_cards_itr)
+
+
+            self.drawn_card = next(chance_cards_itr)
+            for i in chance_cards:
+                if i[:2] == self.drawn_card:
+                    print(f"=== {i[2:]} ===")
+                    break
+
+    def perform_action(self):
+
+        global doubles_rolled
+        global player
+        global current_screen
+
+        # stripping the variable down to the number leading
+        self.drawn_card = int(self.drawn_card)
+        if self.drawn_card == 0:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 0
             player[player_turn]["$$$"] += 200
 
-    elif drawn_card == 2:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 11
+        elif self.drawn_card == 1:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 24
 
-        if player[player_turn]["last pos"] > 11:
-            player[player_turn]["$$$"] += 200
+            if player[player_turn]["last pos"] > 24:
+                player[player_turn]["$$$"] += 200
 
-    elif drawn_card == 3:
+        elif self.drawn_card == 2:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 11
 
-        # this moves the player to waterworks if between electricity company and waterworks, otherwise moves to electricity company
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        if player[player_turn]["pos"] >= 12 and player[player_turn]["pos"] < 28:
-            player[player_turn]["pos"] = 28
+            if player[player_turn]["last pos"] > 11:
+                player[player_turn]["$$$"] += 200
 
-        elif player[player_turn]["pos"] >= 28:
-            player[player_turn]["pos"] = 12
-            player[player_turn]["$$$"] += 200
+        elif self.drawn_card == 3:
 
-        else:
-            player[player_turn]["pos"] = 12
+            # this moves the player to waterworks if between electricity company and waterworks, otherwise moves to electricity company
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            if player[player_turn]["pos"] >= 12 and player[player_turn]["pos"] < 28:
+                player[player_turn]["pos"] = 28
 
-    elif drawn_card == 4:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
+            elif player[player_turn]["pos"] >= 28:
+                player[player_turn]["pos"] = 12
+                player[player_turn]["$$$"] += 200
 
-        # rounds the player to the nearest station
-        player[player_turn]["pos"] = math.ceil(player[player_turn]["pos"] / 10) * 10 + 5
+            else:
+                player[player_turn]["pos"] = 12
 
-        if player[player_turn]["pos"] >= 40:
-            player[player_turn]["pos"] -= 40
+        elif self.drawn_card == 4:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
 
-        if player[player_turn]["pos"] == 5:
-            player[player_turn]["$$$"] += 200
+            # rounds the player to the nearest station
+            player[player_turn]["pos"] = math.ceil(player[player_turn]["pos"] / 10) * 10 + 5
 
-    elif drawn_card == 5:
-        player[player_turn]["$$$"] += 50
+            if player[player_turn]["pos"] >= 40:
+                player[player_turn]["pos"] -= 40
 
-    elif drawn_card == 6:
-        player[player_turn]["has jail pass"] += 1
+            if player[player_turn]["pos"] == 5:
+                player[player_turn]["$$$"] += 200
 
-    elif drawn_card == 7:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] -= 3
+        elif self.drawn_card == 5:
+            player[player_turn]["$$$"] += 50
 
-    elif drawn_card == 8:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 40
-        doubles_rolled = 0
+        elif self.drawn_card == 6:
+            player[player_turn]["has jail pass"] += 1
 
-    elif drawn_card == 9:
-        player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 25) + (player[player_turn]["hotel total"] * 100))
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+        elif self.drawn_card == 7:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] -= 3
 
-    elif drawn_card == 10:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 5
+        elif self.drawn_card == 8:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 40
+            doubles_rolled = 0
 
-    elif drawn_card == 11:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 39
+        elif self.drawn_card == 9:
+            player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 25) + (player[player_turn]["hotel total"] * 100))
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif drawn_card == 12:
-        for i in range(players_playing):
-            if i + 1 != player_turn:
-                player[i + 1]["$$$"] += 50
+        elif self.drawn_card == 10:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 5
 
-        player[player_turn]["$$$"] -= 50 * (players_playing - 1)
+        elif self.drawn_card == 11:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 39
 
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+        elif self.drawn_card == 12:
+            for i in range(players_playing):
+                if i + 1 != player_turn:
+                    player[i + 1]["$$$"] += 50
 
-    elif drawn_card == 13:
-        player[player_turn]["$$$"] += 150
+            player[player_turn]["$$$"] -= 50 * (players_playing - 1)
 
-    elif drawn_card == 14:
-        player[player_turn]["$$$"] -= 15
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    update_player_position(player[player_turn]["pos"])
-    update_player_position(player[player_turn]["last pos"], "remove")
+        elif self.drawn_card == 13:
+            player[player_turn]["$$$"] += 150
 
+        elif self.drawn_card == 14:
+            player[player_turn]["$$$"] -= 15
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
+        update_player_position(player[player_turn]["pos"])
+        update_player_position(player[player_turn]["last pos"], "remove")
+
+chance_cards = chance_cards_class()
 
 
 ############################## C.C. CARDS ACTION ##############################
 
-# this will be functionally identical to the chance cards function, so it won't be commented
-def community_chest_card_actions():
+def community_chest_actions(_action = None):
+    """
+    If the action is "load", the next community chest card is drawn and printed.
+    Any other action will cause the card's action.
+    """
+
     global player
+    global community_chest_cards_itr
 
-    try:
-        drawn_card = next(community_chest_cards_itr)
-        for i in community_chest_cards:
-            if i[:2] == drawn_card:
-                print(f"=== {i[2:]} ===")
-                break
+    if _action == "load":
+        try:
+            community_chest_actions.drawn_card = next(community_chest_cards_itr)
+            for i in community_chest_cards:
+                if i[:2] == community_chest_actions.drawn_card:
+                    print(f"=== {i[2:]} ===")
+                    break
         
-    except:
-        community_chest_cards_itr = iter(community_chest_cards)
-        drawn_card = next(community_chest_cards_itr)
-        for i in community_chest_cards:
-            if i[:2] == drawn_card:
-                print(f"=== {i[2:]} ===")
-                break
+        except:
+            community_chest_cards_itr = []
+            for i in community_chest_cards:
+                community_chest_cards_itr.append(i[:2])
+            community_chest_cards_itr = iter(community_chest_cards_itr)
 
-    drawn_card = int(drawn_card[:2])
-    if drawn_card == 0:
+            community_chest_actions.drawn_card = next(community_chest_cards_itr)
+            for i in community_chest_cards:
+                if i[:2] == community_chest_actions.drawn_card:
+                    print(f"=== {i[2:]} ===")
+                    break
+
+    community_chest_actions.drawn_card = int(community_chest_actions.drawn_card)
+    if community_chest_actions.drawn_card == 0:
         player[player_turn]["last pos"] = player[player_turn]["pos"]
         player[player_turn]["pos"] = 0
         player[player_turn]["$$$"] += 200
 
-    elif drawn_card == 1:
+    elif community_chest_actions.drawn_card == 1:
         player[player_turn]["$$$"] += 200
 
-    elif drawn_card == 2:
+    elif community_chest_actions.drawn_card == 2:
         player[player_turn]["$$$"] -= 50
         if player[player_turn]["$$$"] < 0:
             player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif drawn_card == 3:
+    elif community_chest_actions.drawn_card == 3:
         player[player_turn]["$$$"] += 50
 
-    elif drawn_card == 4:
+    elif community_chest_actions.drawn_card == 4:
         player[player_turn]["has jail pass"] += 1
 
-    elif drawn_card == 5:
+    elif community_chest_actions.drawn_card == 5:
         player[player_turn]["last pos"] = player[player_turn]["pos"]
         player[player_turn]["pos"] = 40
 
-    elif drawn_card == 6:
+    elif community_chest_actions.drawn_card == 6:
         player[player_turn]["$$$"] += 100
 
-    elif drawn_card == 7:
+    elif community_chest_actions.drawn_card == 7:
         player[player_turn]["$$$"] += 20
 
-    elif drawn_card == 8:
+    elif community_chest_actions.drawn_card == 8:
         player[player_turn]["$$$"] += 10 * (players_playing - 1)
 
         # loops through the players, all other players get deducted $10, checks if they're broke
@@ -1230,32 +1261,32 @@ def community_chest_card_actions():
                 if player[i + 1]["$$$"] < 0:
                     player_is_broke(i + 1, abs(player[i + 1]["$$$"]))
 
-    elif drawn_card == 9:
+    elif community_chest_actions.drawn_card == 9:
         player[player_turn]["$$$"] += 100
     
-    elif drawn_card == 10:
+    elif community_chest_actions.drawn_card == 10:
         player[player_turn]["$$$"] -= 100
 
         if player[player_turn]["$$$"] < 0:
             player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
     
-    elif drawn_card == 11:
+    elif community_chest_actions.drawn_card == 11:
         player[player_turn]["$$$"] += 10
 
-    elif drawn_card == 12:
+    elif community_chest_actions.drawn_card == 12:
         player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 40) + (player[player_turn]["hotel total"] * 115))
         if player[player_turn]["$$$"] < 0:
             player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif drawn_card == 13:
+    elif community_chest_actions.drawn_card == 13:
         player[player_turn]["$$$"] -= 50
         if player[player_turn]["$$$"] < 0:
             player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif drawn_card == 14:
+    elif community_chest_actions.drawn_card == 14:
         player[player_turn]["$$$"] += 25
 
-    elif drawn_card == 15:
+    elif community_chest_actions.drawn_card == 15:
         player[player_turn]["$$$"] += 100
 
 
@@ -1267,16 +1298,17 @@ def player_action(_pos):
     global current_action
     global current_screen
     global player
-    global doubles_rolled
 
     # chance + C.C card actions
     if _pos in [7, 22, 36]:
         current_action = "chance"
-        chance_card_actions()
+        current_screen = "game_notice"
+        chance_cards.draw_card()
 
     elif _pos in [2, 17, 33]:
-        current_action = "chance"
-        community_chest_card_actions()
+        current_action = "community chest"
+        current_screen = "game_notice" 
+        community_chest_actions()
 
     # income & super tax
     elif _pos == 4:
@@ -1319,7 +1351,7 @@ def player_action(_pos):
 ############################## HOMESCREEN ##############################
 
 def homescreen():
-    if dev_mode != True:
+    if dev_mode == False:
         os.system("cls")
 
     # the 'current_screen' variable is used for user input, to make sure that the correct output happens
@@ -1473,7 +1505,7 @@ def refresh_board():
     global passed_go
 
     current_screen = "game"
-    if dev_mode != True:
+    if dev_mode == False:
         os.system("cls")
 
     # some of the emojis don't display properly in VS, distorting the board, but looks normal in terminal
@@ -1671,12 +1703,8 @@ def new_game():
 
     player_display_location[0][7] = players_playing - 1
     update_player_position(0)
-
-    # reshuffles the chance cards and community chest cards
-    shuffle(chance_cards)
-    shuffle(community_chest_cards)
     
-    # makes an iterable based on the leading number each chance card has (though save as a string)
+    # makes an iterable based on the leading number each chance/community chest card has (though save as a string)
     chance_cards_itr = []
     for i in chance_cards:
         chance_cards_itr.append(i[:2])
@@ -1689,11 +1717,15 @@ def new_game():
 
     start_time = time.time()
 
-    if dev_mode != True:
+    display_game_notice()
+
+def display_game_notice():
+    global current_screen
+    current_screen = "game_notice"
+
+    if dev_mode == False:
         os.system("cls")
 
-    # the reason for this warning is that if text is outputted to terminal and automatically wraps (without the user resizing to squash text)...
-    # ...even when the you resize the terminal window, the text doesn't fix itself (this only happens to the game screen for some reason)
     print()
     print("    ╔════════════════════════════════════════════════════════════════╗")
     print("    ║                                                                ║")
@@ -1707,7 +1739,7 @@ def new_game():
     print()
     print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
     print()
-    print("    the board is the length of this line, adjust until the line doesn't wrap around your screen.")
+    print("    the board is the length of this line, adjust until the line doesn't wrap around your screen.\n    ", end = "")
     print("    ", end = "")
 
 
@@ -1716,7 +1748,7 @@ def new_game():
 ############################## PLAYER SELECT ##############################
 
 def new_game_select():
-    if dev_mode != True:
+    if dev_mode == False:
         os.system("cls")
 
     global current_screen
@@ -1994,10 +2026,16 @@ def continue_game():
         print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
         print("    ", end = "")
 
+
+
+
+############################## CONTINUE SAVED GAME ##############################
+
 def read_save(_file, _encoding = "utf-8"):
     testfile = open(_file, encoding = _encoding)
 
-    # each line contains a single variable
+    # each line contains a single variable, except the warning at the top, 
+    # but it doesn't contain an "=" so the rest of the code is not triggered.
     for _line in testfile:
         _var = ""
 
@@ -2013,13 +2051,16 @@ def read_save(_file, _encoding = "utf-8"):
                 except:
                     _value = iter(literal_eval(_line[_count + 4:].strip()))
                 globals()[_var] = _value
-                break           
+                break      
+   
+    # this subtracts the time played on the save from the start time so the end-screen calculations reflect the extra time played
+    start_time = time.time() - time_played
 
 
 
 ############################## SAVE GAME ##############################
 
-def save_game(*variables):
+def save_game():
 
     # this is searching for a save file, creating it if it doesn't exist
     try: 
@@ -2030,9 +2071,6 @@ def save_game(*variables):
     # notice to anyone attempting to modify the save file
     save_file.write("Please note: strictly no sneaky shenanigans regarding save file manipulation. Not a sigma move >:(\n\n")
             
-    # writing out game variables
-    for i in variables:
-        save_file.write(f"{variables[i]} = {eval(variables[i])}")
     """
     save_file.write("'Players_playing', 'player_turn', 'doubles_rolled', 'dev_mode'\\n")
     save_file.write(f"{players_playing}, {player_turn}, {doubles_rolled}, {str(dev_mode)}\n")
@@ -2078,7 +2116,7 @@ def save_game_to_file(*variables):
     except:
         save_file = open("save_file.james", "x", encoding="utf-8")
 
-    save_file.write("Strictly no sneaky shenanigans regarding save file manipulation. Not a sigma move >:(\n\n")
+    save_file.write("Wonder what happens if you mess with the save? f*** around and find out\n\n")
 
     for var in variables:
         var_type = type(eval(var)).__name__
@@ -2098,6 +2136,9 @@ def save_game_to_file(*variables):
     for i in range(28):
         if property_data[i][3] != 0:
             save_file.write(f"property_data[{i}] = {property_data[i]}\n")
+
+    # the time is rounded to the nearest second 
+    save_file.write(f"time_played = {str(round(time.time() - start_time))}\n")
 
     save_file.close()
 
@@ -2163,9 +2204,7 @@ while True:
 
         if user_input in ["devmode", "dev mode"]:
             dev_mode = True
-            print("    === dev mode enabled ===")
-            print()
-            print("    ", end = "")
+            print("\n    === dev mode enabled ===\n\n    ", end = "")
 
         elif user_input in ["s", "S"]:
             current_screen = "player_select"
@@ -2174,6 +2213,8 @@ while True:
 
         elif user_input in ["c", "C"]:
               read_save("save_file.james", "utf-8") 
+              display_game_notice()
+
 
         elif "nick" in user_input.lower():
 
@@ -2240,7 +2281,7 @@ while True:
                 else:
                     x += 1
             
-            if user_input == "  ":
+            if user_input in ["  ", r"\\"]:
                 print("\n    === nice try. ===\n\n    ", end = "")
             if x == 2:
 
@@ -2266,9 +2307,13 @@ while True:
         refresh_board()
         
         if current_action == "chance":
-            current_die_rolling = 0
-            if doubles_rolled in [0, 3]:
-                dice_rolled = True
+            current_action = None
+            chance_cards.perform_action()
+        elif current_action == "community chest":
+            current_action = None
+            community_chest_actions()
+
+
 
     elif current_screen == "save_notice" and input_confirmation == True:
         homescreen()
@@ -2306,7 +2351,8 @@ while True:
                 
         elif user_input in ["s", "S"]:
 
-            save_game_to_file("players_playing", "player_turn", "doubles_rolled", "dev_mode", "dice_rolled", "current_action", "player", "chance_cards_itr", "community_chest_cards_itr")
+            save_game_to_file("players_playing", "player_turn", "doubles_rolled", "dev_mode", "dice_rolled", 
+                              "current_action", "player", "chance_cards_itr", "community_chest_cards_itr")
             current_screen = "save_notice"
 
         elif user_input in ["b", "B"] and current_action == "property":
