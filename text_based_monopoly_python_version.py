@@ -20,6 +20,7 @@ dev_mode = False
 house_total = 32
 hotel_total = 12
 time_played = 0
+game_version = 0.6
 
 # the players' icons can only appear in certain points, so this list will have the default and modified art for the game board
 # the default space is blank but there are some special cases that are specified individually
@@ -1020,14 +1021,13 @@ def display_property(_prop_num, is_auction = False):
 
 
 
-############################## CHANCE CARDS ACTION ##############################
+############################## CHANCE CARDS ##############################
 
 class chance_cards_class():
-    
-    def __init__(self):
-        self.drawn_card = None
+    """contains all actions related to chance card management"""
 
-        # these are all the messages for chance and community chest cards
+    def __init__(self):
+
         # note: the numbers at the start are for saving the arrangement of the shuffled cards
         self.cards = [
                       "0 Advance to go (collect $200)",
@@ -1048,71 +1048,53 @@ class chance_cards_class():
                       "14Speeding fine $15",
         ]
         shuffle(self.cards)
-        x = []
-        for i in self.cards: x.append(self.cards[i][:2])
-        
-        self.shuffled_cards = [x]
-        self.iter_pos = 0
 
-    def __next__(self):
-        iter_pos += 1
-        return(self.shuffled_cards[iter_pos])
+        self.cards_value = []
+        self.cards_message = []
+
+        for i in self.cards: self.cards_value.append(i[:2])
+        for i in self.cards: self.cards_message.append(i[2:])
+        self.index = -1
+
+    def __str__(self):
+        return self.cards_message[self.index]
+
 
     def draw_card(self):
+        """returns the next shuffled card message"""
 
-        global chance_cards_itr
-        
-        # this draws the next chance card, and if the iterator has ran out, recreates it
-        # the card with the corresponding number is printed
+        # this draws the next chance card, if exceeded resets to zero
+        self.index += 1
         try:
-            self.drawn_card = next(chance_cards_itr)
-            for i in self.cards:
-                if i[:2] == self.drawn_card:
-                    print(f"=== {i[2:]} ===")
-                    break
+            return self.cards_message[self.index]
         except:
-
-            # makes an iterable based on the leading number each chance/community chest card has (though save as a string)
-            chance_cards_itr = []
-            for i in self.cards:
-                chance_cards_itr.append(i[:2])
-            chance_cards_itr = iter(chance_cards_itr)
-
-
-            self.drawn_card = next(chance_cards_itr)
-            for i in chance_cards:
-                if i[:2] == self.drawn_card:
-                    print(f"=== {i[2:]} ===")
-                    break
+            self.index = 0
+            return self.cards_message[self.index]
 
     def perform_action(self):
+        """
+        performs action based on draw_card(). 
+        Can be done multiple times per card but requires at least one draw_card() 
+        """
 
         global doubles_rolled
         global player
-        global current_screen
 
-        # stripping the variable down to the number leading
-        self.drawn_card = int(self.drawn_card)
-        if self.drawn_card == 0:
+        drawn_card = self.cards_value[self.index]
+
+        if drawn_card == 0:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
             player[player_turn]["pos"] = 0
             player[player_turn]["$$$"] += 200
 
-        elif self.drawn_card == 1:
+        elif drawn_card == 1:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
             player[player_turn]["pos"] = 24
 
             if player[player_turn]["last pos"] > 24:
                 player[player_turn]["$$$"] += 200
 
-        elif self.drawn_card == 2:
-            player[player_turn]["last pos"] = player[player_turn]["pos"]
-            player[player_turn]["pos"] = 11
-
-            if player[player_turn]["last pos"] > 11:
-                player[player_turn]["$$$"] += 200
-
-        elif self.drawn_card == 3:
+        elif drawn_card == 3:
 
             # this moves the player to waterworks if between electricity company and waterworks, otherwise moves to electricity company
             player[player_turn]["last pos"] = player[player_turn]["pos"]
@@ -1126,7 +1108,7 @@ class chance_cards_class():
             else:
                 player[player_turn]["pos"] = 12
 
-        elif self.drawn_card == 4:
+        elif drawn_card == 4:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
 
             # rounds the player to the nearest station
@@ -1138,35 +1120,35 @@ class chance_cards_class():
             if player[player_turn]["pos"] == 5:
                 player[player_turn]["$$$"] += 200
 
-        elif self.drawn_card == 5:
+        elif drawn_card == 5:
             player[player_turn]["$$$"] += 50
 
-        elif self.drawn_card == 6:
+        elif drawn_card == 6:
             player[player_turn]["has jail pass"] += 1
 
-        elif self.drawn_card == 7:
+        elif drawn_card == 7:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
             player[player_turn]["pos"] -= 3
 
-        elif self.drawn_card == 8:
+        elif drawn_card == 8:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
             player[player_turn]["pos"] = 40
             doubles_rolled = 0
 
-        elif self.drawn_card == 9:
+        elif drawn_card == 9:
             player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 25) + (player[player_turn]["hotel total"] * 100))
             if player[player_turn]["$$$"] < 0:
                 player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-        elif self.drawn_card == 10:
+        elif drawn_card == 10:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
             player[player_turn]["pos"] = 5
 
-        elif self.drawn_card == 11:
+        elif drawn_card == 11:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
             player[player_turn]["pos"] = 39
 
-        elif self.drawn_card == 12:
+        elif drawn_card == 12:
             for i in range(players_playing):
                 if i + 1 != player_turn:
                     player[i + 1]["$$$"] += 50
@@ -1176,10 +1158,10 @@ class chance_cards_class():
             if player[player_turn]["$$$"] < 0:
                 player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-        elif self.drawn_card == 13:
+        elif drawn_card == 13:
             player[player_turn]["$$$"] += 150
 
-        elif self.drawn_card == 14:
+        elif drawn_card == 14:
             player[player_turn]["$$$"] -= 15
             if player[player_turn]["$$$"] < 0:
                 player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
@@ -1187,107 +1169,136 @@ class chance_cards_class():
         update_player_position(player[player_turn]["pos"])
         update_player_position(player[player_turn]["last pos"], "remove")
 
-chance_cards = chance_cards_class()
+chance = chance_cards_class()
 
 
-############################## C.C. CARDS ACTION ##############################
 
-def community_chest_actions(_action = None):
-    """
-    If the action is "load", the next community chest card is drawn and printed.
-    Any other action will cause the card's action.
-    """
 
-    global player
-    global community_chest_cards_itr
+############################## C.C. CARDS ##############################
 
-    if _action == "load":
+class community_chest_cards_class():
+    """contains all actions related to community chest card management"""
+
+    def __init__(self):
+        self.cards = [
+                     "0 Advance to go (collect $200)",
+                     "1 Bank error in your favour. Collect $200",
+                     "2 Doctor's fees. Pay $50",
+                     "3 From sale of stock you get $50",
+                     "4 Get out of jail free. This card may be kept until needed or traded",
+                     "5 Go directly to jail. Do not pass go, do not collect $200",
+                     "6 Holiday fund matures. Collect $100",
+                     "7 Income tax refund. Collect $20",
+                     "8 It's your birthday. Collect $10 from every player",
+                     "9 Life insurance matures. Collect $100",
+                     "10Hospital fees. Pay $100",
+                     "11You have won second prise in a beauty contest. Collect $10",
+                     "12You are assessed for street repairs: Pay $40 per house and $115 per hotel you own",
+                     "13School fees. Pay $50",
+                     "14Receive $25 consultancy fee.",
+                     "15You inherit $100",
+]
+        shuffle(self.cards)
+
+        self.cards_value = []
+        self.cards_message = []
+
+        for i in self.cards: self.cards_value.append(i[:2])
+        for i in self.cards: self.cards_message.append(i[2:])
+        self.index = 0
+
+    def __str__(self):
+        return self.cards_message[self.index]
+
+    def draw_card(self):
+        """returns the next shuffled card message"""
+
+        # this draws the next chance card, if exceeded resets to zero
+        self.index += 1
         try:
-            community_chest_actions.drawn_card = next(community_chest_cards_itr)
-            for i in community_chest_cards:
-                if i[:2] == community_chest_actions.drawn_card:
-                    print(f"=== {i[2:]} ===")
-                    break
-        
+            return self.cards_message[self.index]
         except:
-            community_chest_cards_itr = []
-            for i in community_chest_cards:
-                community_chest_cards_itr.append(i[:2])
-            community_chest_cards_itr = iter(community_chest_cards_itr)
+            self.index = 0
+            return self.cards_message[self.index]
 
-            community_chest_actions.drawn_card = next(community_chest_cards_itr)
-            for i in community_chest_cards:
-                if i[:2] == community_chest_actions.drawn_card:
-                    print(f"=== {i[2:]} ===")
-                    break
+    def perform_action(self):
+        """
+        performs action based on draw_card(). 
+        Can be done multiple times per card but requires at least one draw_card() 
+        """
 
-    community_chest_actions.drawn_card = int(community_chest_actions.drawn_card)
-    if community_chest_actions.drawn_card == 0:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 0
-        player[player_turn]["$$$"] += 200
+        global doubles_rolled
+        global player
 
-    elif community_chest_actions.drawn_card == 1:
-        player[player_turn]["$$$"] += 200
+        drawn_card = self.cards_value[self.index]
+        if drawn_card == 0:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 0
+            player[player_turn]["$$$"] += 200
 
-    elif community_chest_actions.drawn_card == 2:
-        player[player_turn]["$$$"] -= 50
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+        elif drawn_card == 1:
+            player[player_turn]["$$$"] += 200
 
-    elif community_chest_actions.drawn_card == 3:
-        player[player_turn]["$$$"] += 50
+        elif drawn_card == 2:
+            player[player_turn]["$$$"] -= 50
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif community_chest_actions.drawn_card == 4:
-        player[player_turn]["has jail pass"] += 1
+        elif drawn_card == 3:
+            player[player_turn]["$$$"] += 50
 
-    elif community_chest_actions.drawn_card == 5:
-        player[player_turn]["last pos"] = player[player_turn]["pos"]
-        player[player_turn]["pos"] = 40
+        elif drawn_card == 4:
+            player[player_turn]["has jail pass"] += 1
 
-    elif community_chest_actions.drawn_card == 6:
-        player[player_turn]["$$$"] += 100
+        elif drawn_card == 5:
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+            player[player_turn]["pos"] = 40
 
-    elif community_chest_actions.drawn_card == 7:
-        player[player_turn]["$$$"] += 20
+        elif drawn_card == 6:
+            player[player_turn]["$$$"] += 100
 
-    elif community_chest_actions.drawn_card == 8:
-        player[player_turn]["$$$"] += 10 * (players_playing - 1)
+        elif drawn_card == 7:
+            player[player_turn]["$$$"] += 20
 
-        # loops through the players, all other players get deducted $10, checks if they're broke
-        for i in range(players_playing):
-            if i + 1 != player_turn:
-                player[i + 1]["$$$"] -= 10
-                if player[i + 1]["$$$"] < 0:
-                    player_is_broke(i + 1, abs(player[i + 1]["$$$"]))
+        elif drawn_card == 8:
+            player[player_turn]["$$$"] += 10 * (players_playing - 1)
 
-    elif community_chest_actions.drawn_card == 9:
-        player[player_turn]["$$$"] += 100
+            # loops through the players, all other players get deducted $10, checks if they're broke
+            for i in range(players_playing):
+                if i + 1 != player_turn:
+                    player[i + 1]["$$$"] -= 10
+                    if player[i + 1]["$$$"] < 0:
+                        player_is_broke(i + 1, abs(player[i + 1]["$$$"]))
+
+        elif drawn_card == 9:
+            player[player_turn]["$$$"] += 100
     
-    elif community_chest_actions.drawn_card == 10:
-        player[player_turn]["$$$"] -= 100
+        elif drawn_card == 10:
+            player[player_turn]["$$$"] -= 100
 
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
     
-    elif community_chest_actions.drawn_card == 11:
-        player[player_turn]["$$$"] += 10
+        elif drawn_card == 11:
+            player[player_turn]["$$$"] += 10
 
-    elif community_chest_actions.drawn_card == 12:
-        player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 40) + (player[player_turn]["hotel total"] * 115))
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+        elif drawn_card == 12:
+            player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 40) + (player[player_turn]["hotel total"] * 115))
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif community_chest_actions.drawn_card == 13:
-        player[player_turn]["$$$"] -= 50
-        if player[player_turn]["$$$"] < 0:
-            player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
+        elif drawn_card == 13:
+            player[player_turn]["$$$"] -= 50
+            if player[player_turn]["$$$"] < 0:
+                player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
 
-    elif community_chest_actions.drawn_card == 14:
-        player[player_turn]["$$$"] += 25
+        elif drawn_card == 14:
+            player[player_turn]["$$$"] += 25
 
-    elif community_chest_actions.drawn_card == 15:
-        player[player_turn]["$$$"] += 100
+        elif drawn_card == 15:
+            player[player_turn]["$$$"] += 100
+
+community_chest = community_chest_cards_class()
 
 
 
@@ -1303,12 +1314,12 @@ def player_action(_pos):
     if _pos in [7, 22, 36]:
         current_action = "chance"
         current_screen = "game_notice"
-        chance_cards.draw_card()
+        print(chance.draw_card())
 
     elif _pos in [2, 17, 33]:
         current_action = "community chest"
         current_screen = "game_notice" 
-        community_chest_actions()
+        print(community_chest.draw_card())
 
     # income & super tax
     elif _pos == 4:
@@ -1361,14 +1372,14 @@ def homescreen():
     # displaying the main menu
     print("")
     print(        "       ___  ___        _____     ____  ____     _____      _____      _____     ____     ___  ___"    )
-    print(        "      /   \/   \      /     \    |    \|  |    /     \    |  _  \    /     \    |  |     \  \/  / │ coded by:"    )
-    print(        "     /  /\  /\  \    |  (_)  |   |  \  \  |   |  (_)  |   |  ___/   |  (_)  |   |  |__    \_  _/  │ James E."    )
-    print(        "    /__/  \/  \__\    \_____/    |__|\____|    \_____/    |__|       \_____/    |_____|    |__|   │ 2024"    )
+    print(        "      /   \/   \      /     \    |    \|  |    /     \    |  _  \    /     \    |  |     \  \/  / │ coded by:")
+    print(        "     /  /\  /\  \    |  (_)  |   |  \  \  |   |  (_)  |   |  ___/   |  (_)  |   |  |__    \_  _/  │ James E.")
+    print(        "    /__/  \/  \__\    \_____/    |__|\____|    \_____/    |__|       \_____/    |_____|    |__|   │ 2024, 2025"    )
     print("")
     print("")
     saved_game = False
     try:
-        x = open("save_file.james")
+        x = open("save_file.james", encoding = "utf-8")
     except:
         pass
     else:
@@ -1681,8 +1692,6 @@ def new_game():
     global current_screen
     global current_die_rolling
     global player_display_location
-    global chance_cards_itr
-    global community_chest_cards_itr
     global doubles_rolled
     global passed_go
     global dice_rolled
@@ -1703,17 +1712,6 @@ def new_game():
 
     player_display_location[0][7] = players_playing - 1
     update_player_position(0)
-    
-    # makes an iterable based on the leading number each chance/community chest card has (though save as a string)
-    chance_cards_itr = []
-    for i in chance_cards:
-        chance_cards_itr.append(i[:2])
-    chance_cards_itr = iter(chance_cards_itr)
-
-    community_chest_cards_itr = []
-    for i in community_chest_cards:
-        community_chest_cards_itr.append(i[:2])
-    community_chest_cards_itr = iter(community_chest_cards_itr)
 
     start_time = time.time()
 
@@ -1809,230 +1807,13 @@ def new_game_select():
 
 
 
-############################## CONTINUE GAME ##############################
-
-def continue_game():
-    global save_file
-    global players_playing
-    global player_turn
-    global doubles_rolled
-    global dev_mode
-    global player
-    global current_die_rolling
-    global passed_go
-    global chance_cards_itr
-    global community_chest_cards_itr
-    global dice_rolled
-    global current_screen
-    global current_action
-    global start_time
-
-    current_screen = "game_notice"
-
-    try:
-        save_file = open("save_file.james", encoding = "utf-8")
-    except:
-        print("\n   === save file not found. if this is an error, please move \"save_file.james\" into the same folder as the program ===\n\n    ", end = "")
-    else: 
-
-        # the first two lines are not relevant, and so are skipped
-        save_file.readline()
-        save_file.readline()
-        
-        # this is reading the values stored in the third line and reassigning variables to them 
-        # (see while true: > current_screen = "game" > user_input = "s" for how I've saved the game variables to a text file)
-        i = save_file.readline()
-        players_playing = int(i[0])
-
-        # player turn needs to be overwritten for updating the players (see below) so this is saved differently 
-        _player_turn = int(i[3])
-        doubles_rolled = int(i[6])
-        if i[9:].strip() == "True":
-            dev_mode = True
-        else:
-            dev_mode = False
-
-        if save_file.readline().strip() == "True":
-            dice_rolled = True
-        else:
-            dice_rolled = False
-        player = {}
-
-        current_action = save_file.readline().strip()
-
-        player = {}
-        for i in range(players_playing):
-
-            player[i + 1] = {
-                "char": "",
-                "$$$": 1500,
-                "pos": 0,
-
-                # this is so that the player's icon can be removed from the board
-                "last pos": 0,
-                    
-                # not a bool since the player could get 2 get out of jail free cards
-                "has jail pass": 0,
-                "jail time": 0,
-                "house total": 0,
-                "hotel total": 0,
-                "status": "playing",
-                "version": 1.0
-                }
-
-            inside_string = False
-            is_key = True
-            _key = ""
-            _value = ""
-            value_is_string = True
-            is_int = False
-            _string = save_file.readline()
-            _counter = 0
-            start_of_int = None
-            _number = int(_string[0])
-            for _char in _string:
-                
-                if _char == "'" or (is_int == True and _char == ","):
-                    is_int = False
-                    if inside_string == True or (_char == ","):
-                        inside_string = False
-
-                        if is_key == True:
-                            is_key = False
-                        else:
-                            is_key = True
-
-                            # converts the value to an integer if not a string
-                            if value_is_string == False:
-                                _value = int(_value)
-
-                            # updates the dictionary with the new key and value recorded
-                            player[_number][_key] = _value
-
-                            # clearing the info stored for the next key and value
-                            _key = ""
-                            _value = ""
-                    else:
-                        inside_string = True
-
-                # checks if the next value will be a string or not and adjusts the code accordingly
-                elif _char == ":":
-                    if _string[_counter + 2] == "'":
-                        value_is_string = True
-                    else:
-                        value_is_string = False
-
-                        # stores the position of the start of the integer
-                        start_of_int = _counter + 2
-                   
-                elif inside_string == True:
-                    if is_key == True:
-                        _key += _char
-                    else:
-                        _value += _char
-
-                # this code ensure integers not in apostrophes are still recorded using the 'elif _char == ":"' check
-                elif _counter == start_of_int or is_int == True:
-                    _value += _char
-                    is_int = True
-                _counter += 1
-
-        # re-adding the players to the correct spots
-        for i in range(players_playing):
-
-            # need to make player turn the same as the player as "update_player_position" uses player turn to determine what player is where
-            player_turn = i + 1
-            update_player_position(player[i + 1]["pos"], "add")
-
-        # resetting the player turn to the proper number
-        player_turn = _player_turn
-
-        # reading the shuffled order of chance and community chest cards 
-        _string = save_file.readline()
-        shuffled_chance_cards = []
-        _count = 0
-
-        # this checks if the next two characters are a number, and then adds the chance card starting with the same number to the shuffled list
-        for i in _string:
-            try:
-                int(_string[_count:_count+2])
-            except:
-                pass
-            else:
-                for ii in chance_cards:
-                    if _string[_count:_count+2] == ii[:2]:
-                        shuffled_chance_cards.append(ii)
-            _count += 1
-        chance_cards_itr = iter(shuffled_chance_cards)
-
-        _string = save_file.readline()
-        shuffled_community_chest_cards = []
-        _count = 0
-
-        # doing the same for community chest
-        for i in _string:
-            try:
-                int(_string[_count:_count+2])
-            except:
-                pass
-            else:
-                for ii in community_chest_cards:
-                    if _string[_count:_count+2] == ii[:2]:
-                        shuffled_community_chest_cards.append(ii)
-            _count += 1
-        community_chest_cards_itr = iter(shuffled_community_chest_cards)
-
-        # this keeps track of the time played on the save, and subtracts it from the start time so the calculations reflect the extra time
-        previous_session = save_file.readline()
-        start_time = time.time() - previous_session
-
-        # the remaining lines of the save file are any properties bought, this code attempts to turn it into a list,
-        # when that fails there are no more properties and the rest are unowned, this also updates the players
-        is_finished = False
-        while is_finished == False:
-            try:
-                _string = save_file.readline()
-                x = int(_string[:2])
-
-                # found this much simpler way of converting a string (formatted as a list) to an actual list
-                property_data[x] = literal_eval(_string[2:])
-                player[property_data[x][3]]["total properties"] += 1
-        
-                if property_data[x][1] == "station":
-                    player[property_data[x][3]]["stations owned"] += 1
-
-                elif property_data[x][1] == "utility":
-                    player[property_data[x][3]]["utilities owned"] += 1
-            except: 
-                is_finished = True
-
-
-        current_die_rolling = 0
-        passed_go = False
-
-        save_file.close()
-        print()
-        print("    ╔════════════════════════════════════════════════════════════════╗")
-        print("    ║                                                                ║")
-        print("    ║                             NOTICE:                            ║")
-        print("    ║                                                                ║")
-        print("    ║              Because of terminal's text-wrapping,              ║")
-        print("    ║           you may need to resize text or the window            ║")
-        print("    ║                                                                ║")
-        print("    ║                             [enter]                            ║")
-        print("    ╚════════════════════════════════════════════════════════════════╝")
-        print()
-        print("    the board is this wide, adjust until this whole line doesn't wrap around the screen.")
-        print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
-        print("    ", end = "")
-
-
-
-
 ############################## CONTINUE SAVED GAME ##############################
 
 def read_save(_file, _encoding = "utf-8"):
     testfile = open(_file, encoding = _encoding)
+
+    # game version will get overwritten, so a copy is recorded to compare with save version to make sure they're the same
+    true_game_version = game_version
 
     # each line contains a single variable, except the warning at the top, 
     # but it doesn't contain an "=" so the rest of the code is not triggered.
@@ -2056,54 +1837,8 @@ def read_save(_file, _encoding = "utf-8"):
     # this subtracts the time played on the save from the start time so the end-screen calculations reflect the extra time played
     start_time = time.time() - time_played
 
-
-
-############################## SAVE GAME ##############################
-
-def save_game():
-
-    # this is searching for a save file, creating it if it doesn't exist
-    try: 
-        save_file = open("save_file.james", "w", encoding = "utf-8")
-    except:
-        save_file = open("save_file.james", "x", encoding = "utf-8")
-
-    # notice to anyone attempting to modify the save file
-    save_file.write("Please note: strictly no sneaky shenanigans regarding save file manipulation. Not a sigma move >:(\n\n")
-            
-    """
-    save_file.write("'Players_playing', 'player_turn', 'doubles_rolled', 'dev_mode'\\n")
-    save_file.write(f"{players_playing}, {player_turn}, {doubles_rolled}, {str(dev_mode)}\n")
-    save_file.write(f"{str(dice_rolled)}\n")
-    save_file.write(f"{current_action}\n")
-    for i in player:
-        save_file.write(f"{i}{player[i]}\n")
-    """
-    # printing out the arrangement of the chance and community chest cards
-    for i in chance_cards_itr:
-
-        # the numbers at the start of the string are the only things that are printed, to save space
-        save_file.write(f",{i[:2]}")
-
-    save_file.write(".\n")
-    for i in community_chest_cards_itr:
-        save_file.write(f",{i[:2]}")
-    save_file.write(".\n")
-    save_file.write(str(round(time.time() - start_time)))
-
-    for _count in range(28):
-        if property_data[_count][3] != None:
-
-            # since the "continue_game" code checks for a certain location, an extra space is required for parity
-            if _count < 10:
-                save_file.write(f"{_count} {property_data[_count]}\n")
-            else:
-                save_file.write(f"{_count}{property_data[_count]}\n")
-    save_file.write(".")
-
-    save_file.close()
-            
-    print("    === game saved ===")
+    if game_version != true_game_version:
+        raise Exception("=== save is not the same version as game")
 
 
 
@@ -2116,7 +1851,7 @@ def save_game_to_file(*variables):
     except:
         save_file = open("save_file.james", "x", encoding="utf-8")
 
-    save_file.write("Wonder what happens if you mess with the save? f*** around and find out\n\n")
+    save_file.write("Wonder what happens if you mess with the save? stuff around and find out\n\n")
 
     for var in variables:
         var_type = type(eval(var)).__name__
@@ -2215,13 +1950,24 @@ while True:
               read_save("save_file.james", "utf-8") 
               display_game_notice()
 
-
         elif "nick" in user_input.lower():
 
             # this is in dedication to Nick Tho, who always uses his phone with night-shift enabled at the maximum intensity
             # changes the background to yellow
             os.system('echo -e "\033[43;37m"')
             homescreen()
+
+            print("=== Nick Tho always uses night-shift on maxium intensity, I'm not trying to be racist ===\n\n")
+            for i in create_button_prompts(["I'm offended", "Makes sense"]):
+                print(i)
+            current_action = "nicktho"
+
+        elif user_input in ["i", "I"] and current_action == "nicktho":
+            print("\n    === get over it. ===\n\n    ", end = "")
+
+        elif user_input in ["m", "M"] and current_action == "nicktho":
+            print("\n    === wow thank you for understanding and not overreacting. ===\n\n    ", end = "")
+
         else:
             print("    === command not recognised === ")
             print("\n    ", end = "")
@@ -2253,7 +1999,9 @@ while True:
                     "house total": 0,
                     "hotel total": 0,
                     "status": "playing",
-                    "version": 1.0
+
+                    # seperate to the game version for online games
+                    "version": game_version
                     }
             new_game_select()
 
@@ -2273,7 +2021,7 @@ while True:
                 # this makes sure that only the full/double width info is returned as there are a few more widths (they aren't necessary for this program)
                 return width in ("F", "W")
 
-            # this counts the character width inputted, and makes sure that 2 normal characters or 1 wide one is inputted, and no more or less
+            # this counts the character width inputted, enforces 2 characters width
             x = 0
             for i in user_input:
                 if char_width(i) == True:
@@ -2283,6 +2031,7 @@ while True:
             
             if user_input in ["  ", r"\\"]:
                 print("\n    === nice try. ===\n\n    ", end = "")
+
             if x == 2:
 
                 player[player_turn]["char"] = user_input
@@ -2308,12 +2057,10 @@ while True:
         
         if current_action == "chance":
             current_action = None
-            chance_cards.perform_action()
+            chance.perform_action()
         elif current_action == "community chest":
             current_action = None
-            community_chest_actions()
-
-
+            community_chest.perform_action()
 
     elif current_screen == "save_notice" and input_confirmation == True:
         homescreen()
@@ -2351,9 +2098,12 @@ while True:
                 
         elif user_input in ["s", "S"]:
 
-            save_game_to_file("players_playing", "player_turn", "doubles_rolled", "dev_mode", "dice_rolled", 
-                              "current_action", "player", "chance_cards_itr", "community_chest_cards_itr")
+            save_game_to_file("game_version", "players_playing", "player_turn",
+                              "doubles_rolled", "dev_mode", "dice_rolled", "dice_rolled",
+                              "current_action", "player", "chance.cards_value", 
+                              "chance.index"," community_chest.cards_value", "community_chest.index")
             current_screen = "save_notice"
+            print("\n    === game saved. [Enter] to return to the main menu ===\n\n    ", end = "")
 
         elif user_input in ["b", "B"] and current_action == "property":
             player[player_turn]["$$$"] -= property_data[return_number_from_pos[player[player_turn]["pos"]]][2]
