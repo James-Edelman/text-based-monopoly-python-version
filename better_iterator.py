@@ -1,17 +1,21 @@
 class better_iter():
     """
-    better_iter supports previous(), looping, choosing to raise exceptions
+    set _end_action to either "loop", or "exception", default is none
     you can also view the current index and the entire iterator.
     
     Created by James E. 2025 with help from Github Copilot
     """
 
     # variables are created when an instance of this class is created
-    def __init__(self, _iterable, _loops = False, _raise_exception = False):
+    def __init__(self, _iterable, _end_action = None):
         self.index = -1
         self.list = _iterable
-        self.loops = _loops
-        self.exception = _raise_exception
+        
+        if _end_action not in ["loop", "exception", None]:
+            raise Exception("invalid end action")
+        else:
+            self.end = _end_action
+       
 
     # used when "next()" is applied
     def __next__(self):
@@ -21,13 +25,13 @@ class better_iter():
         except:
 
             # if the index is out of range but the iterator loops, it is reset to 0
-            if self.loops == True: 
+            if self.end == "loop": 
                 self.index = 0
                 return self.list[self.index]
 
             # looping takes priority over raising an error, 
             # a message isn't needed since "next()" also raises one
-            elif self.exception == True:
+            elif self.end == "exception":
                 raise
 
     # used when "previous()" is applied, works opposite of "next()"
@@ -36,11 +40,11 @@ class better_iter():
         try:
             return self.list[self.index]
         except:
-            if self.loops == True:
+            if self.end == "loop":
                 self.index = len(self.list) - 1
                 return self.list[self.index]
 
-            elif self.exception == True:
+            elif self.end == "exception":
                 raise
 
     # modified with GitHub Copilot
@@ -48,6 +52,10 @@ class better_iter():
         output = str(self.list)
         output = "<" + output[1:-1] + ">"
         return output
+
+    # allows the iterator to be used as a list index
+    def __index__(self):
+        return self.list[self.index]
 
 def previous(arg):
     arg.__previous__()
