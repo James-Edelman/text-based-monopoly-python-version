@@ -2,12 +2,13 @@
 from ast import literal_eval
 import os
 from random import randint, shuffle
+from stat import FILE_ATTRIBUTE_NORMAL
 import sys
 import math
 import time
 from time import sleep
 import unicodedata
-from better_iterator import better_iter
+from better_iterator import better_iter, previous
 
 # setting the terminal name
 sys.stdout.write("\x1b]2;Text-Based Monopoly\x07")
@@ -21,6 +22,7 @@ house_total = 32
 hotel_total = 12
 time_played = 0
 game_version = 0.6
+trade_query = False
 
 # the players' icons can only appear in certain points, so this list will have the default and modified art for the game board
 # the default space is blank but there are some special cases that are specified individually
@@ -109,7 +111,20 @@ return_number_from_pos = {1:0, 3:1, 5:2, 6:3, 8:4, 9:5, 11:6, 12:7, 13:8, 14:9, 
 
 # this creates the icons showing available actions
 def create_button_prompts(prompts = ["", "", "", ""], prompt_state = "default", spacing = "default"):
+    """
+    creates a list of ascii art that displays button looking action prompts.
+    words can be a maximum of 12 characters long per button, and there is
+    the ability to grey out actions through prompt_state (boolean values).
+    the default spacing is 4 spaces front, then 3 between buttons
 
+    change prompt_state/ spacing as lists. eg. [True, False], [2, 3, 7]
+
+     ________________
+    |                | note that the brackets are automatically applied to 
+    |   [E]xample    | the first character, though capitalisation isn't.
+    |________________| (designed for monospace fonts, otherwise distorted)
+
+    """
     # creating the output list for the art
     button_list = ["", "", "", ""]
     extra_space = ["", ""]
@@ -361,11 +376,14 @@ def update_player_position(_pos, _action = "add"):
 
 
 
-############################## PLAYER RAN OUT OF MONEY ##############################n
+############################## PLAYER RAN OUT OF MONEY ##############################
 
 # this function is called when a player is in debt, and displays the properties that they own, and the amount that they owe
 def player_is_broke(_player, _debt):
     
+    if dev_mode != False:
+        os.system("cls")
+
     player_has_properties = False
 
     for i in range(28):
@@ -373,8 +391,6 @@ def player_is_broke(_player, _debt):
             player_has_properties = True
 
     if player_has_properties == True:
-        if dev_mode != True:
-            os.system("cls")
        
         global current_screen
         global entered_number
@@ -385,7 +401,7 @@ def player_is_broke(_player, _debt):
 
         # this makes sure that the text is centered by adding extra space if the debt is a different length than 4 digits
         extra_space = ""
-        for i in range( 4 - len(str(_debt))):
+        for i in range(5 - len(str(_debt))):
             extra_space += " "
 
         print()
@@ -393,16 +409,16 @@ def player_is_broke(_player, _debt):
         print("    ║                                                                ║")
         print("    ║                             NOTICE:                            ║")
         print("    ║                                                                ║")
-        print(f"    ║{extra_space}             You are ${_debt} in debt! raise ${_debt} by              {extra_space}║")
-        print("    ║      [M]ortgaging properties (for half of street vaule),       ║")
-        print("    ║      [S]elling houses/hotels (for half build price), or by     ║")
-        print("    ║         [T]rading with other players (without houses).         ║")
+        print(f"    ║{extra_space}       Player {player_turn}, You are ${_debt} in debt! raise ${_debt} by:       {extra_space}║")
         print("    ║                                                                ║")
-        print("    ║       start by entering the property number on the left.       ║")
+        print("    ║       Mortgaging properties (for half of street vaule),        ║")
+        print("    ║      Selling houses/hotels (for half build price), or by       ║")
+        print("    ║          Trading with other players (without houses).          ║")
         print("    ║                                                                ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
 
-    
+        display_property_list(_player, clear = False)
+ 
     else:
         print()
         print("    ╔════════════════════════════════════════════════════════════════╗")
@@ -427,9 +443,13 @@ def player_is_broke(_player, _debt):
 ############################## DISPLAY INDIVIDUAL PROPERTY ##############################
 
 def display_property_list(_player, clear = True):
-    if clear == True:
+    global conversion_dictionary
+    global current_screen
+
+    if clear == True and dev_mode == False:
         os.system("cls")
 
+    current_screen = "property_list"
     print()
     print("    ╔════════════════════════════════════════════════════════════════╗")
     print("    ║                                                                ║")
@@ -451,32 +471,42 @@ def display_property_list(_player, clear = True):
         if property_data[i][3] == _player:
             sleep(0.15)
             _count += 1
-            print(f"    ║     {_count}  │ {property_data[i][0]}", end = "")
+            print(f"    ║   [{_count}]  │ {property_data[i][0]}", end = "")
                 
             conversion_dictionary[_count] = i
 
             for ii in range(22 - len(property_data[i][0])):
                 print(" ", end = "")
 
-            print(f"│ ${property_data[i][2]} │                        ║")
+            print(f"│ ${property_data[i][2]} │", end = "")
+            
+            if property_data[i][4] == -1:
+                print(" Mortgaged              ║")
+            else:
+                print("                        ║")
+
             stations_displayed = True
 
     # displays an extra blank line to separate the stations from the other cards
     if stations_displayed == True:
-        print("    ║                                                                ║")
-       
+        print("    ║                                                                ║")   
 
     for i in [7, 20]:
         if property_data[i][3] == _player:
             sleep(0.15)
             _count += 1
-            print(f"    ║     {_count}  │ {property_data[i][0]}", end = "")
+            print(f"    ║   [{_count}]  │ {property_data[i][0]}", end = "")
                 
             conversion_dictionary[_count] = i
 
             for ii in range(22 - len(property_data[i][0])):
                 print(" ", end = "")
-            print(f"│ ${property_data[i][2]} │                        ║")
+            print(f"│ ${property_data[i][2]} │", end="")
+
+            if property_data[i][4] == -1:
+                print(" Mortgaged              ║")
+            else:
+                print("                        ║")
 
             utilities_displayed = True
 
@@ -489,9 +519,9 @@ def display_property_list(_player, clear = True):
             _count += 1
             conversion_dictionary[_count] = i
             if _count >= 10:
-                print(f"    ║     {_count} │ {property_data[i][0]}", end = "")
+                print(f"    ║   [{_count}] │ {property_data[i][0]}", end = "")
             else:
-                print(f"    ║     {_count}  │ {property_data[i][0]}", end = "")
+                print(f"    ║   [{_count}]  │ {property_data[i][0]}", end = "")
 
             for ii in range(22 - len(property_data[i][0])):
                 print(" ", end = "")
@@ -517,10 +547,23 @@ def display_property_list(_player, clear = True):
                     for ii in range(16 - (2 * len(x))):
                         print(" ", end = "")
                     print("║")
+            if property_data[i][4] == -1:
+                print("│ Mortgaged              ║")
             else:
                 print("│                        ║")
     print("    ║                                                                ║")
     print("    ╚════════════════════════════════════════════════════════════════╝")
+    print()
+
+    if player[player_turn]["$$$"] < 0:
+        buttons = create_button_prompts(["Back", "#"], [False, True])
+    else:
+        buttons = create_button_prompts(["Back", "#"])
+    for i in buttons:
+        print(i)
+
+    if dev_mode != False:
+        print(conversion_dictionary)
     print("\n    ", end="")
 
 
@@ -535,6 +578,7 @@ def display_property(_prop_num, is_auction = False):
         current_screen = "bidding"
     else:
         current_screen = "property"
+        bid_number = 0
 
     # station cards
     if _prop_num in [2, 10, 17, 25]:
@@ -1307,7 +1351,7 @@ def player_action(_pos):
         print(f"    {chance.art[1]}")
         print(f"    {chance.art[2]}")
         print()
-        print(f"    === {chance.draw_card()} ===")
+        print(f"    === {chance.draw_card()} ===\n\n    ", end="")
 
     elif _pos in [2, 17, 33]:
         current_action = "community chest"
@@ -1318,7 +1362,7 @@ def player_action(_pos):
         print(f"    {community_chest.art[1]}")
         print(f"    {community_chest.art[2]}")
         print()
-        print(f"    === {community_chest.draw_card()} ===")
+        print(f"    === {community_chest.draw_card()} ===\n\n    ", end="")
 
     # income & super tax
     elif _pos == 4:
@@ -1774,11 +1818,7 @@ def new_game_select():
         print("    ____________________________________________________________________________________")
         print("")
 
-        if player_turn == int(players_playing) + 1:
-            name_detection = False
-            new_game()
-
-        elif player_turn == 1:
+        if player_turn == 1:
             print("    Player 1: ", end="")
 
         elif player_turn == 2:
@@ -1869,6 +1909,57 @@ def save_game_to_file(*variables):
     save_file.write(f"time_played = {str(round(time.time() - start_time))}\n")
 
     save_file.close()
+
+
+
+
+############################## BANKRUPTCY ##############################
+
+def bankruptcy():
+    _count = 0
+
+    # this is checking how many players remain after a bankruptcy
+    for i in range(players_playing):
+        if player[i + 1]["status"] == "playing":
+            _count += 1
+
+    # if only one player remains, then the game finished screen is displayed
+    if _count == 1:
+
+        # total amount of seconds played
+        _total = round(time.time() - start_time)
+
+        # bit of simple math that converts a integer of seconds played into Xh Ym Zs format
+        _hours = math.floor(_total/3600)
+        _remainder = _total % 3600
+        _minutes = math.floor(_remainder / 60)
+        _seconds = _remainder % 60
+
+        _length = len(str(_hours)) + len(str(_minutes)) + len(str(_seconds))
+
+        # see 'display_property' for comments (this just centers the code)
+        extra_space = ""
+        for ii in range(math.floor((6 - _length) / 2)):
+            extra_space += " "
+
+        extra_extra_space = ""
+        if _length % 2 == 1:
+            extra_extra_space = " "
+
+        if dev_mode == False:
+            os.system('cls')
+        print("    ╔════════════════════════════════════════════════════════════════╗")
+        print("    ║                                                                ║")
+        print("    ║                       CONGRATULATIONS :)                       ║")
+        print("    ║                                                                ║")
+        print("    ║                     You have won the game!                     ║")
+        print(f"    ║{extra_space}                 you spent {_hours}h {_minutes}m {_seconds}s to do it                 {extra_extra_space}{extra_space}║")
+        print("    ║                                                                ║")
+        print("    ║           was this really the best use of your time?           ║")
+        print("    ║                                                                ║")
+        print("    ╚════════════════════════════════════════════════════════════════╝")
+        print("\n    ", end = "")
+        sys.exit()
 
 
 
@@ -1966,8 +2057,7 @@ while True:
             print("\n    === wow thank you for understanding and not overreacting. ===\n\n    ", end = "")
 
         else:
-            print("    === command not recognised === ")
-            print("\n    ", end = "")
+            print("\n    === command not recognised ===\n\n    ", end = "")
 
     # player select commands
     elif current_screen == "player_select" and input_confirmation == True:
@@ -1986,6 +2076,8 @@ while True:
 
             player = {}
 
+            _count = 0
+
             for i in range(players_playing):
 
                 # the reason for "[i + 1]" is so that the players start at 1, not 0
@@ -2002,6 +2094,7 @@ while True:
                     "jail time": 0,
                     "house total": 0,
                     "hotel total": 0,
+                    "total properties": 0,
                     "status": "playing",
 
                     # seperate to the game version for online games
@@ -2022,7 +2115,7 @@ while True:
             def char_width(char):
                 width = unicodedata.east_asian_width(char)
 
-                # this makes sure that only the full/double width info is returned as there are a few more widths (they aren't necessary for this program)
+                # filters out unnecessary widths
                 return width in ("F", "W")
 
             # this counts the character width inputted, enforces 2 characters width
@@ -2036,21 +2129,22 @@ while True:
             if user_input in ["  ", r"\\"]:
                 print("\n    === nice try. ===\n\n    ", end = "")
 
-            if x == 2:
-
+            elif x == 2:
+                _count += 1
                 player[player_turn]["char"] = user_input
-                player_turn += 1
-                new_game_select()
+                next(player_turn)
+
+                if _count == players_playing:
+                    name_detection = False
+                    new_game()
+                else:                                    
+                    new_game_select()
 
             elif x > 2:
-                print("    === icon too large, try a different icon (eg: '😊' or 'JE') ===")
-                print()
-                print("    ", end="")
+                print("\n    === icon too large, try a different icon (eg: '😊' or 'JE') ===\n\n    ", end="")
 
             else:
-                print("    === icon too small, try a different icon (eg: '😊' or 'JE') ===")
-                print()
-                print("    ", end="")
+                print("\n    === icon too small, try a different icon (eg: '😊' or 'JE') ===\n\n    ", end="")
         else:
             print("    === command not recognised === ")
             print("\n    ", end = "")
@@ -2069,7 +2163,7 @@ while True:
     elif current_screen == "save_notice" and input_confirmation == True:
         homescreen()
 
-    # game commands (the 'user_input != ""' is for when the dice are rolling, since the input is skipped and reset to nothing)
+    # game commands 
     elif current_screen == "game" and input_confirmation == True:
         if user_input in ["r", "R"]:
             if dice_rolled == False:
@@ -2091,13 +2185,14 @@ while True:
                     break
 
             if has_properties == False:
-                print("\n    === you don't own any properties ===\n\n    ", end = "")
+                print("\n    === you don't own any properties. Do you want to initiate a trade instead ([Y]es/[N]o)? ===\n\n    ", end = "")
+                trade_query = True
             else:
                 display_property_list(player_turn)
 
         elif user_input in ["e", "E"]:
-            if dice_rolled == False:
-                print("\n    === roll dice first ===\n\n    ", end = "")
+            if dice_rolled == False and current_action == None:
+                print("\n    === roll dice first and complete space-dependent action first===\n\n    ", end = "")
 
             else: 
                 next(player_turn)
@@ -2118,12 +2213,18 @@ while True:
             print("\n    === game saved. [Enter] to return to the main menu ===\n\n    ", end = "")
 
         elif user_input in ["b", "B"] and current_action == "property":
-            player[player_turn]["$$$"] -= property_data[return_number_from_pos[player[player_turn]["pos"]]][2]
-            property_data[return_number_from_pos[player[player_turn]["pos"]]][3] = player_turn
-            player[player_turn]["total properties"] += 1
+            _prop = return_number_from_pos[player[player_turn]["pos"]]
 
-            current_action = None
-            refresh_board()
+            if player[player_turn]["$$$"] >= property_data[_prop][2]:
+            
+                property_data[return_number_from_pos[player[player_turn]["pos"]]][3] = player_turn
+                player[player_turn]["total properties"] += 1
+
+                current_action = None
+                refresh_board()
+
+            else:
+                print("\n    === you can't afford this property ===\n\n    ", end="")
 
         elif user_input in ["a", "A"] and current_action == "property":
 
@@ -2236,6 +2337,31 @@ while True:
             print("    === command not recognised ===")
             print("\n    ", end = "")
 
+    elif current_screen == "property_list" and input_confirmation == True:
+        if user_input in ["b", "B"]:
+
+            # checks that the player doesn't have negative cash, and that no other players have negative cash
+            if player[player_turn]["$$$"] < 0:
+                print("\n    === you must clear your debts before returning to the game ===\n\n    ", end = "")
+            else:
+                lock = False
+                for i in range(players_playing):
+                    if player[i + 1]["$$$"] < 0:
+                        player_is_broke(i + 1)
+                        lock = True
+                        break
+                if lock == False:
+                    refresh_board()
+
+        else:
+            try:
+                int(user_input)                
+            except:
+                print("\n    === command not recognised ===\n\n    ", end = "")
+            else:
+                if int(user_input) in conversion_dictionary:
+                   display_property(conversion_dictionary[int(user_input)])
+
     elif current_screen == "bidding" and input_confirmation == True:
 
         try:
@@ -2291,50 +2417,7 @@ while True:
                 print("    === you don't own that property. please enter the number to the left of the desired property ===")
 
     elif current_screen == "bankruptcy" and input_confirmation == True:
-        _count = 0
-
-        # this is checking how many players remain after a bankruptcy
-        for i in range(players_playing):
-            if player[i + 1]["status"] == "playing":
-               _count += 1
-
-        # if only one player remains, then the game finished screen is displayed
-        if _count == 1:
-
-            # total amount of seconds played
-            _total = round(time.time() - start_time)
-
-            # bit of simple math that converts a integer of seconds played into Xh Ym Zs format
-            _hours = math.floor(_total/3600)
-            _remainder = _total % 3600
-            _minutes = math.floor(_remainder / 60)
-            _seconds = _remainder % 60
-
-            _length = len(str(_hours)) + len(str(_minutes)) + len(str(_seconds))
-
-            # see 'display_property' for comments (this just centers the code)
-            extra_space = ""
-            for ii in range(math.floor((6 - _length) / 2)):
-                extra_space += " "
-
-            extra_extra_space = ""
-            if _length % 2 == 1:
-                extra_extra_space = " "
-
-            if dev_mode == False:
-                os.system('cls')
-            print("    ╔════════════════════════════════════════════════════════════════╗")
-            print("    ║                                                                ║")
-            print("    ║                       CONGRADULATIONS :)                       ║")
-            print("    ║                                                                ║")
-            print("    ║                     You have won the game!                     ║")
-            print(f"    ║{extra_space}                 you spent {_hours}h {_minutes}m {_seconds}s to do it                 {extra_extra_space}{extra_space}║")
-            print("    ║                                                                ║")
-            print("    ║           was this really the best use of your time?           ║")
-            print("    ║                                                                ║")
-            print("    ╚════════════════════════════════════════════════════════════════╝")
-            print("\n    ", end = "")
-            sys.exit()
+        bankruptcy()
 
     input_confirmation = False
     user_input = ""

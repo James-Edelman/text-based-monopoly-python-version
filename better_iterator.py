@@ -1,3 +1,6 @@
+import time
+
+
 class better_iter():
     """
     set _end_action to either "loop", or "exception", default is none
@@ -16,7 +19,6 @@ class better_iter():
         else:
             self.end = _end_action
        
-
     # used when "next()" is applied
     def __next__(self):
         self.index += 1
@@ -49,13 +51,31 @@ class better_iter():
 
     # modified with GitHub Copilot
     def __str__(self):
+        return str(self.list[self.index])
+     
+    # allows the iterator to be used as a list index
+    def __int__(self): return self.list[self.index]
+
+    def __index__(self): return self.list[self.index]
+
+    def __repr__(self):
         output = str(self.list)
         output = "<" + output[1:-1] + ">"
         return output
+    
+    def __hash__(self): return self.list[self.index]
 
-    # allows the iterator to be used as a list index
-    def __index__(self):
-        return self.list[self.index]
+    def __eq__(self, other): return self.list[self.index] == other
+
+    def __gt__(self, other): return self.list[self.index] > other
+    
+    def __ge__(self, other): return self.list[self.index] >= other
+
+    def __lt__(self, other): return self.list[self.index] < other
+
+    def __le__(self, other): return self.list[self.index] <= other
+
+    def __add__(self, other): return self.list[self.index] + other
 
 def previous(arg):
     arg.__previous__()
