@@ -68,9 +68,9 @@ player_turn_display[4] = ["__  __  ", "| || |_ ", "|___  _|", "   |_|  "]
 
 property_data = [[] for i in range(28)]
 
-# properties: name, type, street value, owner, # of upgrades, colour set group, rent, house 1, H2, H3, H4, hotel, house cost
-# (note: colour set rent is double normal rent, isn't recorded. mortgage/unmortgage value based on street value; isn't recorded)
-# stations/utilities: name, type, street value, owner
+# values: name, type, street value, owner, # of upgrades, colour set group, rent, house 1, H2, H3, H4, hotel, upgrade cost
+# (note: colour set rent is double normal rent, isn't recorded. 
+#  mortgage/unmortgage value based on street value; isn't recorded)
 #                               0                  1       2   3  4  5  6   7    8     9     10    11    12
 property_data[0]  = ["Old Kent Road"        , "property", 60 , 0, 0, 0, 2 , 10 , 30 , 90  , 160 , 250 , 50 ]
 property_data[1]  = ["Whitechapel"          , "property", 60 , 0, 0, 0, 4 , 20 , 60 , 180 , 320 , 450 , 50 ]
@@ -574,6 +574,8 @@ def display_property_list(_player, clear = True):
 def display_property(_prop_num, is_auction = False):
     global current_screen
 
+    extra_space = [0, 0, 0, 0]
+
     if is_auction == True:
         current_screen = "bidding"
     else:
@@ -606,12 +608,11 @@ def display_property(_prop_num, is_auction = False):
         print("    │  \__  _____  __________  __\ │")
 
         if bid_number >= 1:
-            extra_space[0] = ""
-            for i in range(4 - len(str(player_bids[bid_order[0]]) )):
-                extra_space[0] += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[0]]))): extra_space[3] += " "
 
             print("    │    /  |  /    \      /    \  │      ╔═════════════════════╗") 
-            print(f"    │   /   | |      |    |      | │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space}║ ✨ TOP BID ✨")
+            print(f"    │   /   | |      |    |      | │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space[3]}║ ✨ TOP BID ✨")
             print("    │  /___/   \____/      \____/  │      ╚═════════════════════╝")
         else:
             print("    │    /  |  /    \      /    \  │") 
@@ -621,37 +622,32 @@ def display_property(_prop_num, is_auction = False):
 
         # This centers the station name by adding extra whitespace for every character less than the maximum possible length (21)
         extra_space[0] = ""
-        for ii in range(math.floor((21 - len(property_data[_prop_num][0])) /2)):
-            extra_space[0] += " "
+        for ii in range(math.floor((21 - len(property_data[_prop_num][0])) /2)): extra_space[0] += " "
             
         # since the upper code can only add two spaces, if the difference between the maximum length and actual length is odd (so the value is even)...
         # ...an extra space is added to the left of the name to center it properly
         extra_space[1] = ""
-        if len(property_data[_prop_num][0]) % 2 == 0:
-            extra_space[1] = " "
+        if len(property_data[_prop_num][0]) % 2 == 0: extra_space[1] = " "
 
         if bid_number >= 2:
             print("    │                              │      ╔═════════════════════╗")
         
-            # since displaying the bids requires extra space to centre, there is yet another extra_space variable
-            extra_extra_space = ""
-            for i in range(4 - len(player_bids[bid_order[1]])):
-                extra_extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(player_bids[bid_order[1]])): extra_space[3] += " "
 
-            print(f"    │{extra_space[0]}    {property_data[_prop_num][0]}     {extra_space[0]}│      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_extra_space}║")
+            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_space[3]}║")
             print(f"    │                              │      ╚═════════════════════╝")
 
         else:
             print("    │                              │")
-            print(f"    │{extra_space}    {property_data[_prop_num][0]}     {extra_space}│")
+            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│")
             print(f"    │                              │")
 
         if bid_number >= 3:
-            extra_space = ""
-            for i in range(4 - len(player_bids[bid_order[2]])):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(player_bids[bid_order[2]])): extra_space[3] += " "
             print("    │ RENT                    $25  │      ╔═════════════════════╗")
-            print(f"    │                              │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space}║")
+            print(f"    │                              │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space[3]}║")
             print("    │ If 2 stations are owned $50  │      ╚═════════════════════╝")
         else:
             print("    │ RENT                    $25  │")
@@ -659,11 +655,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │ If 2 stations are owned $50  │")
 
         if bid_number >= 4:
-            extra_space = ""
-            for i in range(4 - len(player_bids[bid_order[3]])):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(player_bids[bid_order[3]])): extra_space[3] += " "
             print("    │                              │      ╔═════════════════════╗")
-            print(f"    │ If 3 stations are owned $100 │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space}║")
+            print(f"    │ If 3 stations are owned $100 │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space[3]}║")
             print("    │                              │      ╚═════════════════════╝")
 
         else: 
@@ -703,11 +698,10 @@ def display_property(_prop_num, is_auction = False):
         print("    │ ¯        \   ||   /       ¯  │")
 
         if bid_number >= 1:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[0]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[0]]))): extra_space[3] += " "
             print("    │        /  \======/  \        │      ╔═════════════════════╗")
-            print(f"    │     /     |======|     \     │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space}║ ✨ TOP BID ✨")
+            print(f"    │     /     |======|     \     │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space[3]}║ ✨ TOP BID ✨")
             print("    │           |======|           │      ╚═════════════════════╝")
 
         else:
@@ -716,11 +710,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │           |======|           │")
 
         if bid_number >= 2:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[1]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[1]]))): extra_space[3] += " "
             print("    │            ¯¯¯¯¯¯            │      ╔═════════════════════╗")
-            print(f"    │       Electric Company       │      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_space}║")
+            print(f"    │       Electric Company       │      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_space[3]}║")
             print("    │                              │      ╚═════════════════════╝")
         else:
             print("    │            ¯¯¯¯¯¯            │")
@@ -728,11 +721,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │                              │")
 
         if bid_number >= 3:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[2]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[2]]))): extra_space[3] += " "
             print("    │   If one utility is owned,   │      ╔═════════════════════╗")
-            print(f"    │    rent is 2 times amount    │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space}║")
+            print(f"    │    rent is 2 times amount    │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space[3]}║")
             print("    │        shown on dice         │      ╚═════════════════════╝")
         else:
             print("    │   If one utility is owned,   │")
@@ -740,11 +732,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │        shown on dice         │")
 
         if bid_number >= 4:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[3]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[3]]))): extra_space[3] += " "
             print("    │                              │      ╔═════════════════════╗")
-            print(f"    │                              │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space}║")
+            print(f"    │                              │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space[3]}║")
             print("    │ If both utilities are owned, │      ╚═════════════════════╝")
         else:
             print("    │                              │")
@@ -779,12 +770,11 @@ def display_property(_prop_num, is_auction = False):
         print("    │                              │")
 
         if bid_number >= 1:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[0]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[0]]))): extra_space[3] += " "
 
             print("    │                              │      ╔═════════════════════╗")
-            print(f"    │         Water Works          │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space}║ ✨ TOP BID ✨")
+            print(f"    │         Water Works          │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space[3]}║ ✨ TOP BID ✨")
             print("    │                              │      ╚═════════════════════╝")
         else:
             print("    │                              │")
@@ -792,11 +782,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │                              │")
 
         if bid_number >= 2:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[1]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[1]]))): extra_space[3] += " "
             print("    │                              │      ╔═════════════════════╗")
-            print(f"    │   If one utility is owned,   │      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_space}║")
+            print(f"    │   If one utility is owned,   │      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_space[3]}║")
             print("    │    rent is 2 times amount    │      ╚═════════════════════╝")
         else:
             print("    │                              │")
@@ -804,11 +793,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │    rent is 2 times amount    │")
 
         if bid_number >= 3:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[2]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[2]]))): extra_space[3] += " "
             print("    │        shown on dice         │      ╔═════════════════════╗")
-            print(f"    │                              │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space}║")
+            print(f"    │                              │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space[3]}║")
             print("    │                              │      ╚═════════════════════╝")
         else:
             print("    │        shown on dice         │")
@@ -816,11 +804,10 @@ def display_property(_prop_num, is_auction = False):
             print("    │                              │")
 
         if bid_number >= 4:
-            extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[3]]))):
-                extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[3]]))): extra_space[3] += " "
             print("    │ If both utilities are owned, │      ╔═════════════════════╗")
-            print(f"    │    rent is 4 times amount    │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space}║")
+            print(f"    │    rent is 4 times amount    │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space[3]}║")
             print("    │        shown on dice         │      ╚═════════════════════╝")
         else:
             print("    │ If both utilities are owned, │")
@@ -832,17 +819,15 @@ def display_property(_prop_num, is_auction = False):
         print("    └──────────────────────────────┘")
 
     else:
-        notice = ["      ║                                                                ║",
-          "      ║                             NOTICE:                            ║",
-          "      ║                                                                ║",
-          "      ║   you can bid more than your current cash, and go into debt.   ║"]
-
         def display_bidding_notice(_i_value, _is_auction):
+            notice = ["      ║                                                                ║",
+                      "      ║                             NOTICE:                            ║",
+                      "      ║                                                                ║",
+                      "      ║   you can bid more than your current cash, and go into debt.   ║"]
+
             if _is_auction in [True, "finished"]:
                 print(notice[_i_value], end = "")
-            print()
-
-        extra_space = [0, 0, 0]
+            print()        
 
         if is_auction in [True, "finished"]:
             print("    ┌──────────────────────────────┐      ╔════════════════════════════════════════════════════════════════╗")
@@ -893,44 +878,38 @@ def display_property(_prop_num, is_auction = False):
 
         # see the same code for the stations
         extra_space[0] = ""
-        extra_extra_space = ""
-        for ii in range(math.floor((21 - len(property_data[_prop_num][0])) /2)):
-            extra_space[0] += " "
+        for ii in range(math.floor((21 - len(property_data[_prop_num][0])) /2)): extra_space[0] += " "
 
-        if len(property_data[_prop_num][0]) % 2 == 0:
-            extra_extra_space = " "
+        extra_space[1] = ""
+        if len(property_data[_prop_num][0]) % 2 == 0: extra_space[1] = " "
 
         if is_auction in [True, "finished"]:
-            print(f"    │{extra_space[0]}{extra_extra_space}    {property_data[_prop_num][0]}     {extra_space[0]}│      ║                                                                ║")
+            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│      ║                                                                ║")
             print("    │                              │      ╚════════════════════════════════════════════════════════════════╝")
         else:
-            print(f"    │{extra_space[0]}{extra_extra_space}    {property_data[_prop_num][0]}     {extra_space[0]}│")
+            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│")
             print("    │                              │")
 
         # these just add an extra 1-2 spaces if depending on the length, for rent, colour set rent and all the other stats
         extra_space[0] = ""
-        for ii in range(2 - len(str(property_data[_prop_num][6]))):
-            extra_space[0] += " "
+        for ii in range(2 - len(str(property_data[_prop_num][6]))): extra_space[0] += " "
 
         print(f"    │ Rent                   ${property_data[_prop_num][6]}{extra_space[0]}   │")
 
 
         extra_space[0] = ""
-        for ii in range(3 - len(str(property_data[_prop_num][6] * 2))):
-            extra_space[0] += " "
+        for ii in range(3 - len(str(property_data[_prop_num][6] * 2))): extra_space[0] += " "
 
         extra_space[1] = ""
-        for ii in range(3 - len(str(property_data[_prop_num][7]))):
-            extra_space[1] += " "
+        for ii in range(3 - len(str(property_data[_prop_num][7]))): extra_space[1] += " "
 
         if bid_number >= 1:
             print(f"    │ Rent with colour set   ${(property_data[_prop_num][6] * 2)}{extra_space[0]}  │      ╔═════════════════════╗")
                         
-            extra_extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[0]]))):
-                extra_extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[0]]))): extra_space[3] += " "
 
-            print(f"    │                              │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_extra_space}║ ✨ TOP BID ✨")
+            print(f"    │                              │      ║ Player {bid_order[0]} bid: ${player_bids[bid_order[0]]} {extra_space[3]}║ ✨ TOP BID ✨")
             print(f"    │ Rent with 🏠           ${property_data[_prop_num][7]}{extra_space[1]}  │      ╚═════════════════════╝")
 
         else:
@@ -940,26 +919,22 @@ def display_property(_prop_num, is_auction = False):
             
 
         extra_space[0] = ""
-        for ii in range(3 - len(str(property_data[_prop_num][8]))):
-            extra_space[0] += " "
+        for ii in range(3 - len(str(property_data[_prop_num][8]))): extra_space[0] += " "
 
         extra_space[1] = ""
-        for ii in range(4 - len(str(property_data[_prop_num][9]))):
-            extra_space[1] += " "
+        for ii in range(4 - len(str(property_data[_prop_num][9]))): extra_space[1] += " "
 
         extra_space[2] = ""
-        for ii in range(4 - len(str(property_data[_prop_num][10]))):
-            extra_space[2] += " "
+        for ii in range(4 - len(str(property_data[_prop_num][10]))): extra_space[2] += " "
 
         if bid_number >= 2:
 
             print(f"    │ Rent with 🏠🏠         ${property_data[_prop_num][8]}{extra_space[0]}  │      ╔═════════════════════╗")
 
-            extra_extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[1]]))):
-                extra_extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[1]]))): extra_space[3] += " "
 
-            print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num][9]}{extra_space[1]} │      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_extra_space}║")
+            print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num][9]}{extra_space[1]} │      ║ Player {bid_order[1]} bid: ${player_bids[bid_order[1]]} {extra_space[3]}║")
             print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[_prop_num][10]}{extra_space[2]} │      ╚═════════════════════╝")
         
         else:
@@ -970,17 +945,15 @@ def display_property(_prop_num, is_auction = False):
 
 
         extra_space[0] = ""
-        for ii in range(4 - len(str(property_data[_prop_num][11]))):
-            extra_space[0] += " "
+        for ii in range(4 - len(str(property_data[_prop_num][11]))): extra_space[0] += " "
 
         if bid_number >= 3:
             print("    │                              │      ╔═════════════════════╗")
 
-            extra_extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[2]]))):
-                extra_extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[2]]))): extra_space[3] += " "
 
-            print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num][11]}{extra_space[0]} │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_extra_space}║")
+            print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num][11]}{extra_space[0]} │      ║ Player {bid_order[2]} bid: ${player_bids[bid_order[2]]} {extra_space[3]}║")
             print("    │                              │      ╚═════════════════════╝")
         
         else:
@@ -989,18 +962,16 @@ def display_property(_prop_num, is_auction = False):
             print("    │                              │")
         
         extra_space[0] = ""
-        for ii in range(4 - len(str(property_data[_prop_num][12]))):
-            extra_space[0] += " "
+        for ii in range(4 - len(str(property_data[_prop_num][12]))): extra_space[0] += " "
 
 
         if bid_number >= 4:
             print("    │ ---------------------------- │      ╔═════════════════════╗")
 
-            extra_extra_space = ""
-            for i in range(4 - len(str(player_bids[bid_order[3]]))):
-                extra_extra_space += " "
+            extra_space[3] = ""
+            for i in range(4 - len(str(player_bids[bid_order[3]]))): extra_space[3] += " "
         
-            print(f"    │ House/hotel cost       ${property_data[_prop_num][12]}{extra_space[0]} │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_extra_space}║")
+            print(f"    │ House/hotel cost       ${property_data[_prop_num][12]}{extra_space[0]} │      ║ Player {bid_order[3]} bid: ${player_bids[bid_order[3]]} {extra_space[3]}║")
             print("    │                              │      ╚═════════════════════╝")
         else:
             print("    │ ---------------------------- │")
@@ -1010,26 +981,51 @@ def display_property(_prop_num, is_auction = False):
 
 
         extra_space[0] = ""
-        for ii in range(4 - len(str(property_data[_prop_num][2]))):
-            extra_space[0] += " "
+        for ii in range(4 - len(str(property_data[_prop_num][2]))): extra_space[0] += " "
 
         print(f"    │ Street value           ${property_data[_prop_num][2]}{extra_space[0]} │")
 
         extra_space[0] = ""
-        for ii in range(3 - len(str(int(property_data[_prop_num][2] / 2)))):
-            extra_space[0] += " "                                                                
+        for ii in range(3 - len(str(int(property_data[_prop_num][2] / 2)))): extra_space[0] += " "   
+        
         print(f"    │ mortgage value         ${int(property_data[_prop_num][2] / 2)}{extra_space[0]}  │")
 
         print("    └──────────────────────────────┘")
 
     if is_auction == True and player_bids[player_turn] == 0:
-        print(f"\n    === player {player_turn} place a bid or [Skip] ===")
+        print(f"\n    === player {player_turn} place a bid or [Skip] ===\n\n    ", end = "")
 
     elif is_auction == True:
-        print(f"\n    === player {player_turn} either raise your bid or [S]kip ===")
+        print(f"\n    === player {player_turn} either raise your bid or [S]kip ===\n\n    ", end = "")
 
     elif is_auction == "finished":
-        print(f"\n    === player {player_turn} has won the bid, press [Enter] to continue ===")
+        print(f"\n    === player {player_turn} has won the bid, press [Enter] to continue ===\n\n    ", end = "")
+
+    else:
+        actions = [["Back"], [True]]
+
+        # if the property has no upgrades, and can be mortgaged
+        if property_data[_prop_num][4] in [0, 1]:
+            actions[0].append("Mortgage")
+            actions[1].append(True)
+
+        # if the property has upgrades, cannot be mortgaged
+        elif property_data[_prop_num][4] >= 2:
+            actions[0].append("Mortgage")
+            actions[1].append(False)
+
+        # if the player can afford to unmortgage the property
+        elif player[property_data[_prop_num][3]]["$$$"] >= round((property_data[_prop_num][2] / 2) * 1.1):
+            actions[0].append("Unmortgage")
+            actions[1].append(True)
+
+        # if the player cannot afford to unmortgage the property
+        else:
+            actions[0].append("Unmortgage")
+            actions[1].append(True)
+
+        for i in create_button_prompts(actions[0], actions[1]):
+            print(i)
 
     print("\n    ", end = "")
 
@@ -1414,10 +1410,10 @@ def homescreen():
 
     # displaying the main menu
     print("")
-    print(        "       ___  ___        _____     ____  ____     _____      _____      _____     ____     ___  ___"    )
-    print(        "      /   \/   \      /     \    |    \|  |    /     \    |  _  \    /     \    |  |     \  \/  / │ coded by:")
-    print(        "     /  /\  /\  \    |  (_)  |   |  \  \  |   |  (_)  |   |  ___/   |  (_)  |   |  |__    \_  _/  │ James E.")
-    print(        "    /__/  \/  \__\    \_____/    |__|\____|    \_____/    |__|       \_____/    |_____|    |__|   │ 2024, 2025"    )
+    print("       ___  ___        _____     ____  ____     _____      _____      _____     ____     ___  ___"    )
+    print("      /   \/   \      /     \    |    \|  |    /     \    |  _  \    /     \    |  |     \  \/  / │ coded by:")
+    print("     /  /\  /\  \    |  (_)  |   |  \  \  |   |  (_)  |   |  ___/   |  (_)  |   |  |__    \_  _/  │ James E.")
+    print("    /__/  \/  \__\    \_____/    |__|\____|    \_____/    |__|       \_____/    |_____|    |__|   │ 2024, 2025"    )
     print("")
     print("")
     saved_game = False
@@ -1549,8 +1545,108 @@ def dice_roll_animation():
         player_roll_itr = iter(range(dice_value[1] + dice_value[2]))
 
 
+class trade_screen_class():
+    """stores the player offers and screen for trading"""
+
+    def __init__(self):
+        self.player_1 =  None
+        self.player_2 = None
+        self.action = None
+        self.action2 = None
+
+    def __call__(self, player):
+        try: self.player_1 = int(player)
+        except: pass
+        else: self.other_player_prompt()
+
+    def other_player_prompt(self):
+        """prompts the player who they would like to trade with"""
+
+        if dev_mode == False: os.system("cls")
+        self.action = "player select"
+
+        global current_screen 
+        current_screen = "trade window"
+
+        self.other_players = []
+        self.spacing = []
+
+        print("    ╔════════════════════════════════════════════════════════════════╗")
+        print("    ║                                                                ║")
+        print("    ║                  CHOOSE PLAYER TO TRADE WITH:                  ║")
+        print("    ║                                                                ║")
+        print("    ╚════════════════════════════════════════════════════════════════╝")
 
 
+        for i in range(players_playing):
+            if i + 1 != self.player_1: 
+                self.other_players.append(str(i + 1))
+                self.spacing.append("3")
+
+        self.other_players.append("Back")
+        self.spacing.append(6)
+        self.spacing[0] = 4
+
+        for i in create_button_prompts(self.other_players, spacing = self.spacing): print(i)
+        print("\n    ", end = "")
+
+    def input_management(self, _input, _action = "default"):
+        """determines what to do with an input"""
+        if _input in ["b", "B"]:
+
+            has_properties = False
+            for i in property_data:
+                if i[3] == self.player_1:
+                    has_properties = True
+
+            if has_properties == True:
+                display_property_list(player_turn)
+            else:
+                for i in range(players_playing):
+                    if player[i + 1]["$$$"] < 0:
+                        player_is_broke(i + 1)
+                        break
+
+        if self.action == "player select":
+            try:
+                int(_input)
+            except:
+                if self.action2 == "message":
+                    if _input in ["p", "P"]:
+                        self.player2 = self.player_1
+                        self.action2 = None
+                        self.action = None
+                        print("\n    === if you insist... ===\n\n    ", end="")
+
+                    elif _input in ["o", "O"]:
+
+                        # clears the conversation and recreates prompts
+                        self.action2 = None
+                        if dev_mode == False: os.system("cls")
+                        for i in create_button_prompts(self.other_players, spacing = self.spacing):
+                            print(i)
+                else:
+                    print("\n    === command not recognised. Please enter a number. ===\n\n", end = "")
+
+            else:
+                if _input in self.other_players:
+                   self.player_2 = int(_input)
+                   self.action = None
+                   self.display_trade_window()
+
+                elif int(_input) == self.player_1: 
+                    print("\n    === you can't trade with yourself! ===\n\n")
+                    for i in create_button_prompts(["Pleeeeeeease", "Ok"]):
+                        print(i)
+
+                else:
+                    print("\n    === that player does not exist ===\n\n    ", end = "")
+                    
+        elif self.action == "p1 enter offer":
+            pass
+
+trade_screen = trade_screen_class()
+        
 ############################## GAME SCREEN ##############################
 
 def refresh_board():
@@ -1586,23 +1682,20 @@ def refresh_board():
     print(f"    |   {player_display_location[17][1]}   |                                                                                                  |   {player_display_location[33][1]}   |")
     
     # this checks if the players owns any properties, and greys out the button otherwise
-    button_states = [None, None, None, True]
+    button_states = [False, False, False, True]
 
     for i in range(28):
-        if property_data[i][3] == player_turn:
-            button_states[1] = True
+        if property_data[i][3] == player_turn: 
+            button_states[1] = True; 
             break
 
-    # similar checks are performed for the other buttons
+    # similar checks are performed for the other prompts
     if dice_rolled == False:
         button_states[0] = True
-    else:
-        button_states[0] = False
 
     if current_action == None and dice_rolled == True:
         button_states[2] = True
-    else:
-        button_states[2] = False
+
 
     button_list = create_button_prompts(["Roll dice","Properties", "End turn", "Save & Exit"], button_states)
     print(f"    |  💰  💵  🪙    |{button_list[0]}             |  💰  💵  🪙    |")
@@ -2044,7 +2137,7 @@ while True:
             os.system('echo -e "\033[43;37m"')
             homescreen()
 
-            print("=== Nick Tho always uses night-shift on maxium intensity, I'm not trying to be racist ===\n\n")
+            print("\n=== Nick Tho always uses night-shift on maxium intensity, I'm not trying to be racist ===\n\n")
             for i in create_button_prompts(["I'm offended", "Makes sense"]):
                 print(i)
             print("\n    ", end = "")
@@ -2114,7 +2207,7 @@ while True:
             #  ...as having the width be too long or short distorts the board
             def char_width(char):
                 width = unicodedata.east_asian_width(char)
-
+             
                 # filters out unnecessary widths
                 return width in ("F", "W")
 
@@ -2163,9 +2256,19 @@ while True:
     elif current_screen == "save_notice" and input_confirmation == True:
         homescreen()
 
-    # game commands 
     elif current_screen == "game" and input_confirmation == True:
-        if user_input in ["r", "R"]:
+
+        if trade_query == True and user_input in ["y", "Y"]:
+            trade_screen(player_turn)
+            trade_screen.other_player_prompt()
+
+        elif trade_query == True and user_input in ["n", "N"]:
+            trade_query = False
+
+        elif trade_query == True:
+            print("\n    === command not recognised ===\n\n    ", end = "")
+
+        elif user_input in ["r", "R"]:
             if dice_rolled == False:
                 dice_countdown = 7
 
@@ -2173,9 +2276,7 @@ while True:
                 current_die_rolling = 1
                 refresh_board()
             else:
-                print("    === you've already rolled ===")
-                print()
-                print("    ",end = "")
+                print("\n    === you've already rolled ===\n\n    ", end = "")
 
         elif user_input in ["p", "P"]:
             has_properties = False
@@ -2312,8 +2413,7 @@ while True:
         elif user_input == "forcechancecard" and dev_mode == True:
             x = int(input("    === what player: "))
             xx = input("    === what card value: ")
-            if len(xx) == 1:
-                xx = xx + " "
+            if len(xx) == 1: xx = xx + " "
 
             for i in range(len(chance.cards_value)):
                 if chance.cards_value[i] == xx:
@@ -2325,17 +2425,16 @@ while True:
             x = int(input("    === what player: "))
             xx = input("    === what card value: ")
 
-            if len(xx) == 1:
-                xx = xx + " "
+            if len(xx) == 1: xx = xx + " "
 
             for i in range(len(community_chest.cards_value)):
                 if community_chest.cards_value[i] == xx:
                     community_chest.index = i
 
             chance.perform_action()
+
         else:
-            print("    === command not recognised ===")
-            print("\n    ", end = "")
+            print("\n    === command not recognised ===\n\n    ", end = "")
 
     elif current_screen == "property_list" and input_confirmation == True:
         if user_input in ["b", "B"]:
@@ -2362,6 +2461,10 @@ while True:
                 if int(user_input) in conversion_dictionary:
                    display_property(conversion_dictionary[int(user_input)])
 
+    elif current_screen == "property" and input_confirmation == True:
+        if user_input in ["b", "B"]:
+            display_property_list(player_turn)
+
     elif current_screen == "bidding" and input_confirmation == True:
 
         try:
@@ -2376,8 +2479,7 @@ while True:
                     refresh_board()
 
             else:
-                print("    === command not recognised. Please enter a number or [S]kip ===")
-                print("\n    ", end = "")
+                print("\n    === command not recognised. Please enter a number or [S]kip ===\n\n    ", end = "")
         else:
             if int(user_input) > player_bids[player_turn]:
                 player_bids[player_turn] = int(user_input)
@@ -2398,26 +2500,26 @@ while True:
 
                 display_property(auctioned_property, is_auction = True)
             else:
-                print(f"\n    === player {player_turn} either raise your bid or [S]kip ===")
-                print("\n    ", end = "")
+                print(f"\n    === player {player_turn} either raise your bid or [S]kip ===\n\n    ")
 
-    # bankruptcy screen commands
     elif current_screen == "raise_money_screen" and input_confirmation == True:
 
         # makes sure that the user entered a number, than makes sure that the player owns that property
         try:
             x = int(user_input)
         except:
-            print("    === command not recognised. please enter the number to the left of the desired property ===")
-            print("\n    ", end = "")
+            print("\n    === command not recognised. please enter the number to the left of the desired property ===\n\n    ", end = "")
         else:
             if property_data[int(return_number_from_pos[user_input])][3] == player[player_turn]["pos"]:
                 display_property(int(user_input))
             else:
-                print("    === you don't own that property. please enter the number to the left of the desired property ===")
+                print("\n    === you don't own that property. please enter the number to the left of the desired property ===\n\n    ", end = "")
 
     elif current_screen == "bankruptcy" and input_confirmation == True:
         bankruptcy()
+
+    elif current_screen == "trade window":
+        trade_screen.input_management(user_input)
 
     input_confirmation = False
     user_input = ""

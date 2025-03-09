@@ -49,11 +49,8 @@ class better_iter():
             elif self.end == "exception":
                 raise
 
-    # modified with GitHub Copilot
-    def __str__(self):
-        return str(self.list[self.index])
+    def __str__(self): return str(self.list[self.index])
      
-    # allows the iterator to be used as a list index
     def __int__(self): return self.list[self.index]
 
     def __index__(self): return self.list[self.index]
