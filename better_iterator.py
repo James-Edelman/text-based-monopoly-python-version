@@ -1,6 +1,3 @@
-import time
-
-
 class better_iter():
     """
     set _end_action to either "loop", or "exception", default is none
@@ -13,6 +10,7 @@ class better_iter():
     def __init__(self, _iterable, _end_action = None):
         self.index = -1
         self.list = _iterable
+        self.iter_through = False
         
         if _end_action not in ["loop", "exception", None]:
             raise Exception("invalid end action")
@@ -21,13 +19,23 @@ class better_iter():
        
     # used when "next()" is applied
     def __next__(self):
-        self.index += 1
+
+        # either adds to the index or for loop index
+        if self.iter_through == False:
+            self.index += 1
+            index = self.index
+
+        else:
+            self.iter_index += 1
+            index = self.iter_index
+
         try:
-            return self.list[self.index]
+            return self.list[index]
         except:
 
             # if the index is out of range but the iterator loops, it is reset to 0
-            if self.end == "loop": 
+            # when used in a for loop this will not infinitely loop
+            if self.end == "loop" and self.iter_through == False: 
                 self.index = 0
                 return self.list[self.index]
 
@@ -35,6 +43,13 @@ class better_iter():
             # a message isn't needed since "next()" also raises one
             elif self.end == "exception":
                 raise
+
+            # when iterating through a better_iter runs out, stops the loop lock
+            elif self.iter_through == True:
+                self.iter_through = False
+
+                # ends the for loop
+                raise StopIteration
 
     # used when "previous()" is applied, works opposite of "next()"
     def __previous__(self):
@@ -48,6 +63,13 @@ class better_iter():
 
             elif self.end == "exception":
                 raise
+
+    def __iter__(self):
+        self.iter_through = True
+
+        # custom index means that progress isn't lost in for loops
+        self.iter_index = -1
+        return self
 
     def __str__(self): return str(self.list[self.index])
      
@@ -74,6 +96,4 @@ class better_iter():
 
     def __add__(self, other): return self.list[self.index] + other
 
-def previous(arg):
-    arg.__previous__()
-    return arg.list[arg.index]
+def previous(arg): return arg.__previous__()
