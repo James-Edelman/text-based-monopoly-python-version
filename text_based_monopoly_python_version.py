@@ -1,16 +1,14 @@
 ﻿# importing required functions
-import os
+from os import system as run_command
 from random import randint, shuffle
-import sys
-import math
-import time
-from time import sleep
-import unicodedata
+from sys import exit
+from time import time
+from unicodedata import east_asian_width as width
 from better_iterator import better_iter
 
 # setting the terminal name
-sys.stdout.write("\x1b]2;Text-Based Monopoly\x07")
-
+run_command('echo -ne "\033]2;Text-Based Monopoly\007"')
+    
 # initialising variables
 players_playing = 0
 current_die_rolling = 0
@@ -21,6 +19,7 @@ hotel_total = 12
 time_played = 0
 game_version = 0.6
 trade_query = False
+user_response_time = 0
 
 # the players' icons can only appear in certain points, so this list will have the default and modified art for the game board
 # the default space is blank but there are some special cases that are specified individually
@@ -64,44 +63,67 @@ player_turn_display[2] = [" _----_ ", "/__/  / ", " /  /___", "|______|"]
 player_turn_display[3] = [" ______ ", "|____  \\", " |___ ⟨⁐", "|______/"]
 player_turn_display[4] = ["__  __  ", "| || |_ ", "|___  _|", "   |_|  "]
 
-property_data = [[] for i in range(28)]
+property_data = [{None: None,None: None,None: None,"owner": None} for i in range(28)]
 
-# values: name, type, street value, owner, # of upgrades, colour set group, rent, house 1, H2, H3, H4, hotel, upgrade cost
+
 # (note: colour set rent is double normal rent, isn't recorded. 
 #  mortgage/unmortgage value based on street value; isn't recorded)
-#                               0                  1       2   3  4  5  6   7    8     9     10    11    12
-property_data[0]  = ["Old Kent Road"        , "property", 60 , 0, 0, 0, 2 , 10 , 30 , 90  , 160 , 250 , 50 ]
-property_data[1]  = ["Whitechapel"          , "property", 60 , 0, 0, 0, 4 , 20 , 60 , 180 , 320 , 450 , 50 ]
-property_data[2]  = ["Kings Cross Station"  , "station" , 200, 0, 0]
-property_data[3]  = ["The Angel Islington"  , "property", 100, 0, 0, 1, 6 , 30 , 90 , 270 , 400 , 550 , 50 ]
-property_data[4]  = ["Euston Road"          , "property", 100, 0, 0, 1, 6 , 30 , 90 , 270 , 400 , 550 , 50 ]
-property_data[5]  = ["Pentonville Road"     , "property", 120, 0, 0, 1, 8 , 40 , 100, 300 , 450 , 600 , 50 ]
-property_data[6]  = ["Pall Mall"            , "property", 140, 0, 0, 2, 10, 50 , 150, 450 , 625 , 750 , 100]
-property_data[7]  = ["Electric Company"     , "utility" , 150, 0, 0]
-property_data[8]  = ["Whitehall"            , "property", 140, 0, 0, 2, 10, 50 , 150, 450 , 625 , 750 , 100]
-property_data[9]  = ["Northumberland Avenue", "property", 160, 0, 0, 2, 12, 60 , 180, 500 , 700 , 900 , 100]
-property_data[10] = ["Marylebone Station"   , "station" , 200, 0, 0]
-property_data[11] = ["Bow Street"           , "property", 180, 0, 0, 3, 14, 70 , 200, 550 , 750 , 950 , 100]
-property_data[12] = ["Marlborough Street"   , "property", 180, 0, 0, 3, 14, 70 , 200, 550 , 750 , 950 , 100]
-property_data[13] = ["Vine Street"          , "property", 200, 0, 0, 3, 16, 80 , 220, 600 , 800 , 1000, 100]
-property_data[14] = ["Strand"               , "property", 220, 0, 0, 4, 18, 90 , 250, 700 , 875 , 1050, 150]
-property_data[15] = ["Fleet Street"         , "property", 220, 0, 0, 4, 18, 90 , 250, 700 , 875 , 1050, 150]
-property_data[16] = ["Trafalgar Square"     , "property", 240, 0, 0, 4, 18, 90 , 250, 700 , 875 , 1050, 150]
-property_data[17] = ["Fenchurch St. Station", "station" , 200, 0, 0]
-property_data[18] = ["Leicester Square"     , "property", 260, 0, 0, 5, 22, 110, 330, 800 , 975 , 1150, 150]
-property_data[19] = ["Coventry Street"      , "property", 260, 0, 0, 5, 22, 110, 330, 800 , 975 , 1150, 150]
-property_data[20] = ["Water Works"          , "utility" , 150, 0, 0]
-property_data[21] = ["Piccadilly"           , "property", 280, 0, 0, 5, 24, 120, 360, 850 , 1025, 1200, 150]
-property_data[22] = ["Regent Street"        , "property", 300, 0, 0, 6, 26, 130, 390, 900 , 1100, 1275, 200]
-property_data[23] = ["Oxford Street"        , "property", 300, 0, 0, 6, 26, 130, 390, 900 , 1100, 1275, 200]
-property_data[24] = ["Bond Street"          , "property", 320, 0, 0, 6, 28, 150, 450, 1000, 1200, 1400, 200]
-property_data[25] = ["Liverpool St. Station", "station" , 200, 0, 0]
-property_data[26] = ["Park Lane"            , "property", 350, 0, 0, 7, 35, 175, 500, 1100, 1300, 1500, 200]
-property_data[27] = ["Mayfair"              , "property", 400, 0, 0, 7, 50, 200, 600, 1400, 1700, 2000, 200]
+# upgrades: 0 = unpurchased, -1 = mortgaged, 1 = purchased, 2 = colour set, 3 - 8 = upgrades
+property_data[0]  = {"name": "Old Kent Road"        , "type": "property", "street value": 60 , "owner": None, "upgrade state": 0, "colour set": 0, "rent": 2 , "h1 rent": 10 , "h2 rent": 30 , "h3 rent": 90  , "h4 rent": 160 , "h5 rent": 250 , "house cost": 50 }
+property_data[1]  = {"name": "Whitechapel"          , "type": "property", "street value": 60 , "owner": None, "upgrade state": 0, "colour set": 0, "rent": 4 , "h1 rent": 20 , "h2 rent": 60 , "h3 rent": 180 , "h4 rent": 320 , "h5 rent": 450 , "house cost": 50 }
+property_data[2]  = {"name": "Kings Cross Station"  , "type": "station" , "street value": 200, "owner": None, "upgrade state": 0}
+property_data[3]  = {"name": "The Angel Islington"  , "type": "property", "street value": 100, "owner": None, "upgrade state": 0, "colour set": 1, "rent": 6 , "h1 rent": 30 , "h2 rent": 90 , "h3 rent": 270 , "h4 rent": 400 , "h5 rent": 550 , "house cost": 50 }
+property_data[4]  = {"name": "Euston Road"          , "type": "property", "street value": 100, "owner": None, "upgrade state": 0, "colour set": 1, "rent": 6 , "h1 rent": 30 , "h2 rent": 90 , "h3 rent": 270 , "h4 rent": 400 , "h5 rent": 550 , "house cost": 50 }
+property_data[5]  = {"name": "Pentonville Road"     , "type": "property", "street value": 120, "owner": None, "upgrade state": 0, "colour set": 1, "rent": 8 , "h1 rent": 40 , "h2 rent": 100, "h3 rent": 300 , "h4 rent": 450 , "h5 rent": 600 , "house cost": 50 }
+property_data[6]  = {"name": "Pall Mall"            , "type": "property", "street value": 140, "owner": None, "upgrade state": 0, "colour set": 2, "rent": 10, "h1 rent": 50 , "h2 rent": 150, "h3 rent": 450 , "h4 rent": 625 , "h5 rent": 750 , "house cost": 100}
+property_data[7]  = {"name": "Electric Company"     , "type": "utility" , "street value": 150, "owner": None, "upgrade state": 0}
+property_data[8]  = {"name": "Whitehall"            , "type": "property", "street value": 140, "owner": None, "upgrade state": 0, "colour set": 2, "rent": 10, "h1 rent": 50 , "h2 rent": 150, "h3 rent": 450 , "h4 rent": 625 , "h5 rent": 750 , "house cost": 100}
+property_data[9]  = {"name": "Northumberland Avenue", "type": "property", "street value": 160, "owner": None, "upgrade state": 0, "colour set": 2, "rent": 12, "h1 rent": 60 , "h2 rent": 180, "h3 rent": 500 , "h4 rent": 700 , "h5 rent": 900 , "house cost": 100}
+property_data[10] = {"name": "Marylebone Station"   , "type": "station" , "street value": 200, "owner": None, "upgrade state": 0}
+property_data[11] = {"name": "Bow Street"           , "type": "property", "street value": 180, "owner": None, "upgrade state": 0, "colour set": 3, "rent": 14, "h1 rent": 70 , "h2 rent": 200, "h3 rent": 550 , "h4 rent": 750 , "h5 rent": 950 , "house cost": 100}
+property_data[12] = {"name": "Marlborough Street"   , "type": "property", "street value": 180, "owner": None, "upgrade state": 0, "colour set": 3, "rent": 14, "h1 rent": 70 , "h2 rent": 200, "h3 rent": 550 , "h4 rent": 750 , "h5 rent": 950 , "house cost": 100}
+property_data[13] = {"name": "Vine Street"          , "type": "property", "street value": 200, "owner": None, "upgrade state": 0, "colour set": 3, "rent": 16, "h1 rent": 80 , "h2 rent": 220, "h3 rent": 600 , "h4 rent": 800 , "h5 rent": 1000, "house cost": 100}
+property_data[14] = {"name": "Strand"               , "type": "property", "street value": 220, "owner": None, "upgrade state": 0, "colour set": 4, "rent": 18, "h1 rent": 90 , "h2 rent": 250, "h3 rent": 700 , "h4 rent": 875 , "h5 rent": 1050, "house cost": 150}
+property_data[15] = {"name": "Fleet Street"         , "type": "property", "street value": 220, "owner": None, "upgrade state": 0, "colour set": 4, "rent": 18, "h1 rent": 90 , "h2 rent": 250, "h3 rent": 700 , "h4 rent": 875 , "h5 rent": 1050, "house cost": 150}
+property_data[16] = {"name": "Trafalgar Square"     , "type": "property", "street value": 240, "owner": None, "upgrade state": 0, "colour set": 4, "rent": 18, "h1 rent": 90 , "h2 rent": 250, "h3 rent": 700 , "h4 rent": 875 , "h5 rent": 1050, "house cost": 150}
+property_data[17] = {"name": "Fenchurch St. Station", "type": "station" , "street value": 200, "owner": None, "upgrade state": 0}
+property_data[18] = {"name": "Leicester Square"     , "type": "property", "street value": 260, "owner": None, "upgrade state": 0, "colour set": 5, "rent": 22, "h1 rent": 110, "h2 rent": 330, "h3 rent": 800 , "h4 rent": 975 , "h5 rent": 1150, "house cost": 150}
+property_data[19] = {"name": "Coventry Street"      , "type": "property", "street value": 260, "owner": None, "upgrade state": 0, "colour set": 5, "rent": 22, "h1 rent": 110, "h2 rent": 330, "h3 rent": 800 , "h4 rent": 975 , "h5 rent": 1150, "house cost": 150}
+property_data[20] = {"name": "Water Works"          , "type": "utility" , "street value": 150, "owner": None, "upgrade state": 0}
+property_data[21] = {"name": "Piccadilly"           , "type": "property", "street value": 280, "owner": None, "upgrade state": 0, "colour set": 5, "rent": 24, "h1 rent": 120, "h2 rent": 360, "h3 rent": 850 , "h4 rent": 1025, "h5 rent": 1200, "house cost": 150}
+property_data[22] = {"name": "Regent Street"        , "type": "property", "street value": 300, "owner": None, "upgrade state": 0, "colour set": 6, "rent": 26, "h1 rent": 130, "h2 rent": 390, "h3 rent": 900 , "h4 rent": 1100, "h5 rent": 1275, "house cost": 200}
+property_data[23] = {"name": "Oxford Street"        , "type": "property", "street value": 300, "owner": None, "upgrade state": 0, "colour set": 6, "rent": 26, "h1 rent": 130, "h2 rent": 390, "h3 rent": 900 , "h4 rent": 1100, "h5 rent": 1275, "house cost": 200}
+property_data[24] = {"name": "Bond Street"          , "type": "property", "street value": 320, "owner": None, "upgrade state": 0, "colour set": 6, "rent": 28, "h1 rent": 150, "h2 rent": 450, "h3 rent": 1000, "h4 rent": 1200, "h5 rent": 1400, "house cost": 200}
+property_data[25] = {"name": "Liverpool St. Station", "type": "station" , "street value": 200, "owner": None, "upgrade state": 0}
+property_data[26] = {"name": "Park Lane"            , "type": "property", "street value": 350, "owner": None, "upgrade state": 0, "colour set": 7, "rent": 35, "h1 rent": 175, "h2 rent": 500, "h3 rent": 1100, "h4 rent": 1300, "h5 rent": 1500, "house cost": 200}
+property_data[27] = {"name": "Mayfair"              , "type": "property", "street value": 400, "owner": None, "upgrade state": 0, "colour set": 7, "rent": 50, "h1 rent": 200, "h2 rent": 600, "h3 rent": 1400, "h4 rent": 1700, "h5 rent": 2000, "house cost": 200}
 
 # this converts the player's position into the corresponding property number on the list
-return_number_from_pos = {1:0, 3:1, 5:2, 6:3, 8:4, 9:5, 11:6, 12:7, 13:8, 14:9, 15:10, 16:11, 18:12, 19:13, 21:14,
-                          23:15, 24:16, 25:17, 26:18, 27:19, 28:20, 29:21, 31:22, 32:23, 34:24, 35:25, 37:26, 39:27}
+prop_from_pos = {1:0, 3:1, 5:2, 6:3, 8:4, 9:5, 11:6, 12:7, 13:8, 14:9,
+    15:10, 16:11, 18:12, 19:13, 21:14, 23:15, 24:16, 25:17, 26:18, 27:19, 28:20,
+    29:21, 31:22, 32:23, 34:24, 35:25, 37:26, 39:27
+}
+
+
+def sleep(_time: int):
+    """delays thread for inputted milliseconds"""
+    start = time()
+    _time = _time / 1000
+    while time() - start < _time: pass
+
+def floor(_num: float):
+    """returns closest lower integer to given float"""    
+    try: val, rem = str(_num).split(".")
+    except: return int(_num)
+    if int(rem) != 0: return int(val)
+    else: return int(val)
+
+def ceil(_num: float):
+    """returns closest higher integer to given float"""
+    try: val, rem = str(_num).split(".")
+    except: return int(_num)
+    if int(rem) != 0: return int(val) + 1
+    else: return int(val)
 
 
 def create_button_prompts(prompts = ["", "", "", ""], prompt_state = "default", spacing = "default"):
@@ -163,7 +185,7 @@ def create_button_prompts(prompts = ["", "", "", ""], prompt_state = "default", 
         extra_space = ["", ""]
 
         # this adds an extra space to each side for every two charactrs the prompt is from the maxium, rounded down
-        for ii in range(math.floor((12 - len(prompts[i]))/ 2)): extra_space[0] += " "
+        for ii in range(floor((12 - len(prompts[i]))/ 2)): extra_space[0] += " "
 
         # if an additional space is needed (instead of an extra 1 on each side) it is added to the right
         if len(prompts[i]) % 2 == 1:
@@ -364,12 +386,12 @@ def update_player_position(_pos, _action = "add"):
 def player_is_broke(_player, _debt):
     """"""
     if dev_mode != False:
-        os.system("cls")
+        run_command("cls")
 
     player_has_properties = False
 
     for i in range(28):
-        if property_data[i][3] == _player:
+        if property_data[i]["owner"] == _player:
             player_has_properties = True
 
     if player_has_properties == True:
@@ -429,7 +451,7 @@ class display_property_list_class():
         global current_screen
 
         if clear == True and dev_mode == False:
-            os.system("cls")
+            run_command("cls")
 
         current_screen = "property_list"
         print()
@@ -450,19 +472,19 @@ class display_property_list_class():
 
         # this checks what stations the player owns and displays them first
         for i in [2, 10, 17, 25]:
-            if property_data[i][3] == _player:
-                sleep(0.15)
+            if property_data[i]["owner"] == _player:
+                sleep(150)
                 _count += 1
-                print(f"    ║   [{_count}]  │ {property_data[i][0]}", end = "")
+                print(f"    ║   [{_count}]  │ {property_data[i]['name']}", end = "")
                 
                 conversion_dictionary[_count] = i
 
-                for ii in range(22 - len(property_data[i][0])):
+                for ii in range(22 - len(property_data[i]['name'])):
                     print(" ", end = "")
 
-                print(f"│ ${property_data[i][2]} │", end = "")
+                print(f"│ ${property_data[i]['street value']} │", end = "")
             
-                if property_data[i][4] == -1:
+                if property_data[i]["upgrade state"] == -1:
                     print(" Mortgaged              ║")
                 else:
                     print("                        ║")
@@ -474,18 +496,18 @@ class display_property_list_class():
             print("    ║                                                                ║")   
 
         for i in [7, 20]:
-            if property_data[i][3] == _player:
-                sleep(0.15)
+            if property_data[i]["owner"] == _player:
+                sleep(150)
                 _count += 1
-                print(f"    ║   [{_count}]  │ {property_data[i][0]}", end = "")
+                print(f"    ║   [{_count}]  │ {property_data[i]['name']}", end = "")
                 
                 conversion_dictionary[_count] = i
 
-                for ii in range(22 - len(property_data[i][0])):
+                for ii in range(22 - len(property_data[i]["name"])):
                     print(" ", end = "")
-                print(f"│ ${property_data[i][2]} │", end="")
+                print(f"│ ${property_data[i]['street value']} │", end="")
 
-                if property_data[i][4] == -1:
+                if property_data[i]["upgrade state"] == -1:
                     print(" Mortgaged              ║")
                 else:
                     print("                        ║")
@@ -496,40 +518,40 @@ class display_property_list_class():
             print("    ║                                                                ║")
 
         for i in range(28):
-            if property_data[i][3] == _player and property_data[i][1] == "property":
-                sleep(0.15)
+            if property_data[i]["owner"] == _player and property_data[i]["type"] == "property":
+                sleep(150)
                 _count += 1
                 conversion_dictionary[_count] = i
                 if _count >= 10:
-                    print(f"    ║   [{_count}] │ {property_data[i][0]}", end = "")
+                    print(f"    ║   [{_count}] │ {property_data[i]['name']}", end = "")
                 else:
-                    print(f"    ║   [{_count}]  │ {property_data[i][0]}", end = "")
+                    print(f"    ║   [{_count}]  │ {property_data[i]['name']}", end = "")
 
-                for ii in range(22 - len(property_data[i][0])):
+                for ii in range(22 - len(property_data[i]["owner"])):
                     print(" ", end = "")
 
-                print(f"│ ${property_data[i][2]} ", end = "")
-                if property_data[i][2] < 100:
+                print(f"│ ${property_data[i]['street value']} ", end = "")
+                if property_data[i]["street value"] < 100:
                     print(" ", end = "")
 
-                if property_data[i][1] == "property" and property_data[i][4] > 2:
-                    print(f" │ ${property_data[i][12]}", end = "")
-                    if property_data[i][12] < 100:
+                if property_data[i]["upgrade state"] > 2:
+                    print(f" │ ${property_data[i]['house cost']}", end = "")
+                    if property_data[i]["house cost"] < 100:
                         print(" ", end = "")
                     
                     print(" × ", end = "")
-                    if property_data[i][4] == 5:
+                    if property_data[i]["upgrade state"] == 7:
                         print("🏠🏠🏠🏠 🏨     ║")
 
                     else:
                         x = ""
-                        for ii in range(property_data[i][4]):
+                        for ii in range(property_data[i]["upgrade state"]):
                             x += "🏠"
                         print(f"{x}", end = "")
                         for ii in range(16 - (2 * len(x))):
                             print(" ", end = "")
                         print("║")
-                elif property_data[i][4] == -1:
+                elif property_data[i]["upgrade state"] == -1:
                     print("│ Mortgaged              ║")
                 else:
                     print("│                        ║")
@@ -551,7 +573,7 @@ class display_property_list_class():
 display_property_list = display_property_list_class()
 
 
-class display_property_class():
+class display_property_class(): 
     def __init__(self): 
         self.property = None
         self.skipped_bids = 0
@@ -579,7 +601,7 @@ class display_property_class():
 
         extra_space = [0, 0, 0, 0]
         current_screen = "property"
-        if dev_mode != False: os.system("cls")
+        if dev_mode == False: run_command("cls")
         print()
 
         def bidding_notice():
@@ -614,12 +636,12 @@ class display_property_class():
 
             # This centers the station name by adding extra whitespace for every character less than the maximum possible length (21)
             extra_space[0] = ""
-            for ii in range(math.floor((21 - len(property_data[_prop_num][0])) /2)): extra_space[0] += " "
+            for ii in range(floor((21 - len(property_data[_prop_num]["name"])) /2)): extra_space[0] += " "
             
             # since the upper code can only add two spaces, if the difference between the maximum length and actual length is odd (so the value is even)...
             # ...an extra space is added to the left of the name to center it properly
             extra_space[1] = ""
-            if len(property_data[_prop_num][0]) % 2 == 0: extra_space[1] = " "
+            if len(property_data[_prop_num]["name"]) % 2 == 0: extra_space[1] = " "
 
             if self.bid_number >= 2:
                 print("    │                              │      ╔═════════════════════╗")
@@ -627,12 +649,12 @@ class display_property_class():
                 extra_space[3] = ""
                 for i in range(4 - len(self.player_bids[self.bid_order[1]])): extra_space[3] += " "
 
-                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│      ║ Player {self.bid_order[1]} bid: ${self.player_bids[self.bid_order[1]]} {extra_space[3]}║")
+                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num]['name']}     {extra_space[0]}│      ║ Player {self.bid_order[1]} bid: ${self.player_bids[self.bid_order[1]]} {extra_space[3]}║")
                 print(f"    │                              │      ╚═════════════════════╝")
 
             else:
                 print("    │                              │")
-                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│")
+                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num]['name']}     {extra_space[0]}│")
                 print(f"    │                              │")
 
             if self.bid_number >= 3:
@@ -726,6 +748,7 @@ class display_property_class():
             print("    │                              │")
             print("    └──────────────────────────────┘")
 
+        # waterworks
         elif _prop_num == 20:
             print(f"    ┌──────────────────────────────┐{bidding_notice()}")
             print(f"    │                              │{bidding_notice()}")
@@ -791,28 +814,28 @@ class display_property_class():
             print(f"    ┌──────────────────────────────┐{bidding_notice()}")
 
             # this checks what colour set the property is in and adjusts the colour of the printed title deed
-            if property_data[_prop_num][5] == 0:
+            if property_data[_prop_num]["colour set"] == 0:
                 for i in range(4):
                     print(f"    │ 🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫 │{bidding_notice()}") # brown
 
             # light blue (set 1) and dark blue (set 7) use the same colour
-            elif property_data[_prop_num][5] in [1, 7]:
+            elif property_data[_prop_num]["colour set"] in [1, 7]:
                 for i in range(4):
                     print(f"    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │{bidding_notice()}") # blue
         
-            elif property_data[_prop_num][5] == 2:
+            elif property_data[_prop_num]["colour set"] == 2:
                 for i in range(4):
                     print(f"    │ 🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪 │{bidding_notice()}") # purple (there's no pink square emoji)
 
-            elif property_data[_prop_num][5] == 3:
+            elif property_data[_prop_num]["colour set"] == 3:
                 for i in range(4):    
                     print(f"    │ 🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧 │{bidding_notice()}") # orange
 
-            elif property_data[_prop_num][5] == 4:
+            elif property_data[_prop_num]["colour set"] == 4:
                 for i in range(4):
                     print(f"    │ 🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥 │{bidding_notice()}") # red
 
-            elif property_data[_prop_num][5] == 5:
+            elif property_data[_prop_num]["colour set"] == 5:
                 for i in range(4):
                     print(f"    │ 🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨 │{bidding_notice()}") # yellow
 
@@ -827,73 +850,73 @@ class display_property_class():
 
             # see the same code for the stations
             extra_space[0] = ""
-            for ii in range(math.floor((21 - len(property_data[_prop_num][0])) /2)): extra_space[0] += " "
+            for ii in range(floor((21 - len(property_data[_prop_num]["name"])) /2)): extra_space[0] += " "
 
             extra_space[1] = ""
-            if len(property_data[_prop_num][0]) % 2 == 0: extra_space[1] = " "
+            if len(property_data[_prop_num]["name"]) % 2 == 0: extra_space[1] = " "
 
             if self.action in ["auction", "finished"]:
-                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│      ║                                                                ║")
+                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num]['name']}     {extra_space[0]}│      ║                                                                ║")
                 print("    │                              │      ╚════════════════════════════════════════════════════════════════╝")
             else:
-                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num][0]}     {extra_space[0]}│")
+                print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num]['name']}     {extra_space[0]}│")
                 print("    │                              │")
 
             # these just add an extra 1-2 spaces if depending on the length, for rent, colour set rent and all the other stats
             extra_space[0] = ""
-            for ii in range(2 - len(str(property_data[_prop_num][6]))): extra_space[0] += " "
+            for ii in range(2 - len(str(property_data[_prop_num]["rent"]))): extra_space[0] += " "
 
-            print(f"    │ Rent                   ${property_data[_prop_num][6]}{extra_space[0]}   │")
+            print(f"    │ Rent                   ${property_data[_prop_num]['rent']}{extra_space[0]}   │")
 
 
             extra_space[0] = ""
-            for ii in range(3 - len(str(property_data[_prop_num][6] * 2))): extra_space[0] += " "
+            for ii in range(3 - len(str(property_data[_prop_num]["rent"] * 2))): extra_space[0] += " "
 
             extra_space[1] = ""
-            for ii in range(3 - len(str(property_data[_prop_num][7]))): extra_space[1] += " "
+            for ii in range(3 - len(str(property_data[_prop_num]["h1 rent"]))): extra_space[1] += " "
 
             if self.bid_number >= 1:
-                print(f"    │ Rent with colour set   ${(property_data[_prop_num][6] * 2)}{extra_space[0]}  │      ╔═════════════════════╗")
+                print(f"    │ Rent with colour set   ${(property_data[_prop_num]['rent'] * 2)}{extra_space[0]}  │      ╔═════════════════════╗")
                         
                 extra_space[3] = ""
                 for i in range(4 - len(str(self.player_bids[self.bid_order[0]]))): extra_space[3] += " "
 
                 print(f"    │                              │      ║ Player {self.bid_order[0]} bid: ${self.player_bids[self.bid_order[0]]} {extra_space[3]}║ ✨ TOP BID ✨")
-                print(f"    │ Rent with 🏠           ${property_data[_prop_num][7]}{extra_space[1]}  │      ╚═════════════════════╝")
+                print(f"    │ Rent with 🏠           ${property_data[_prop_num]['h1 rent']}{extra_space[1]}  │      ╚═════════════════════╝")
 
             else:
-                print(f"    │ Rent with colour set   ${(property_data[_prop_num][6] * 2)}{extra_space[0]}  │")
+                print(f"    │ Rent with colour set   ${(property_data[_prop_num]['rent'] * 2)}{extra_space[0]}  │")
                 print("    │                              │")
-                print(f"    │ Rent with 🏠           ${property_data[_prop_num][7]}{extra_space[1]}  │")
+                print(f"    │ Rent with 🏠           ${property_data[_prop_num]['h1 rent']}{extra_space[1]}  │")
             
 
             extra_space[0] = ""
-            for ii in range(3 - len(str(property_data[_prop_num][8]))): extra_space[0] += " "
+            for ii in range(3 - len(str(property_data[_prop_num]["h2 rent"]))): extra_space[0] += " "
 
             extra_space[1] = ""
-            for ii in range(4 - len(str(property_data[_prop_num][9]))): extra_space[1] += " "
+            for ii in range(4 - len(str(property_data[_prop_num]["h3 rent"]))): extra_space[1] += " "
 
             extra_space[2] = ""
-            for ii in range(4 - len(str(property_data[_prop_num][10]))): extra_space[2] += " "
+            for ii in range(4 - len(str(property_data[_prop_num]["h4 rent"]))): extra_space[2] += " "
 
             if self.bid_number >= 2:
 
-                print(f"    │ Rent with 🏠🏠         ${property_data[_prop_num][8]}{extra_space[0]}  │      ╔═════════════════════╗")
+                print(f"    │ Rent with 🏠🏠         ${property_data[_prop_num]['h2 rent']}{extra_space[0]}  │      ╔═════════════════════╗")
 
                 extra_space[3] = ""
                 for i in range(4 - len(str(self.player_bids[self.bid_order[1]]))): extra_space[3] += " "
 
-                print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num][9]}{extra_space[1]} │      ║ Player {self.bid_order[1]} bid: ${self.player_bids[self.bid_order[1]]} {extra_space[3]}║")
-                print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[_prop_num][10]}{extra_space[2]} │      ╚═════════════════════╝")
+                print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num]['h3 rent']}{extra_space[1]} │      ║ Player {self.bid_order[1]} bid: ${self.player_bids[self.bid_order[1]]} {extra_space[3]}║")
+                print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[_prop_num]['h4 rent']}{extra_space[2]} │      ╚═════════════════════╝")
         
             else:
 
-                print(f"    │ Rent with 🏠🏠         ${property_data[_prop_num][8]}{extra_space[0]}  │")
-                print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num][9]}{extra_space[1]} │")
-                print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[_prop_num][10]}{extra_space[2]} │")
+                print(f"    │ Rent with 🏠🏠         ${property_data[_prop_num]['h2 rent']}{extra_space[0]}  │")
+                print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num]['h3 rent']}{extra_space[1]} │")
+                print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[_prop_num]['h4 rent']}{extra_space[2]} │")
 
             extra_space[0] = ""
-            for ii in range(4 - len(str(property_data[_prop_num][11]))): extra_space[0] += " "
+            for ii in range(4 - len(str(property_data[_prop_num]["h5 rent"]))): extra_space[0] += " "
 
             if self.bid_number >= 3:
                 print("    │                              │      ╔═════════════════════╗")
@@ -901,16 +924,16 @@ class display_property_class():
                 extra_space[3] = ""
                 for i in range(4 - len(str(self.player_bids[self.bid_order[2]]))): extra_space[3] += " "
 
-                print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num][11]}{extra_space[0]} │      ║ Player {self.bid_order[2]} bid: ${self.player_bids[self.bid_order[2]]} {extra_space[3]}║")
+                print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num]['h5 rent']}{extra_space[0]} │      ║ Player {self.bid_order[2]} bid: ${self.player_bids[self.bid_order[2]]} {extra_space[3]}║")
                 print("    │                              │      ╚═════════════════════╝")
         
             else:
                 print("    │                              │")
-                print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num][11]}{extra_space[0]} │")
+                print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num]['h5 rent']}{extra_space[0]} │")
                 print("    │                              │")
         
             extra_space[0] = ""
-            for ii in range(4 - len(str(property_data[_prop_num][12]))): extra_space[0] += " "
+            for ii in range(4 - len(str(property_data[_prop_num]["house cost"]))): extra_space[0] += " "
 
 
             if self.bid_number >= 4:
@@ -919,24 +942,27 @@ class display_property_class():
                 extra_space[3] = ""
                 for i in range(4 - len(str(self.player_bids[self.bid_order[3]]))): extra_space[3] += " "
         
-                print(f"    │ House/hotel cost       ${property_data[_prop_num][12]}{extra_space[0]} │      ║ Player {self.bid_order[3]} bid: ${self.player_bids[self.bid_order[3]]} {extra_space[3]}║")
+                print(f"    │ House/hotel cost       ${property_data[_prop_num]['house cost']}{extra_space[0]} │      ║ Player {self.bid_order[3]} bid: ${self.player_bids[self.bid_order[3]]} {extra_space[3]}║")
                 print("    │                              │      ╚═════════════════════╝")
             else:
                 print("    │ ---------------------------- │")
         
-                print(f"    │ House/hotel cost       ${property_data[_prop_num][12]}{extra_space[0]} │")
+                print(f"    │ House/hotel cost       ${property_data[_prop_num]['house cost']}{extra_space[0]} │")
                 print("    │                              │")
 
 
             extra_space[0] = ""
-            for ii in range(4 - len(str(property_data[_prop_num][2]))): extra_space[0] += " "
+            for ii in range(4 - len(str(property_data[_prop_num]["street value"]))): extra_space[0] += " "
 
-            print(f"    │ Street value           ${property_data[_prop_num][2]}{extra_space[0]} │")
+            print(f"    │ Street value           ${property_data[_prop_num]['street value']}{extra_space[0]} │")
 
             extra_space[0] = ""
-            for ii in range(3 - len(str(int(property_data[_prop_num][2] / 2)))): extra_space[0] += " "   
+            for ii in range(3 - len(str(int(property_data[_prop_num]["street value"] / 2)))): extra_space[0] += " "   
         
-            print(f"    │ mortgage value         ${int(property_data[_prop_num][2] / 2)}{extra_space[0]}  │")
+            if property_data[_prop_num]["upgrade state"] != -1:
+                print(f"    │ mortgage value         ${int(property_data[_prop_num]['street value'] / 2)}{extra_space[0]}  │")
+            else:
+                print(f"    │ unmortgage value       ${int((property_data[_prop_num]['street value'] / 2) * 1.1)}{extra_space[0]}  │")
 
             print("    └──────────────────────────────┘")
 
@@ -960,17 +986,17 @@ class display_property_class():
             actions = [[], []]
 
             # if the property has no upgrades, and can be mortgaged
-            if property_data[_prop_num][4] in [0, 1]:
+            if property_data[_prop_num]["upgrade state"] in [0, 1]:
                 actions[0].append("Mortgage")
                 actions[1].append(True)
 
             # if the property has upgrades, cannot be mortgaged
-            elif property_data[_prop_num][4] >= 2:
+            elif property_data[_prop_num]["upgrade state"] >= 2:
                 actions[0].append("Mortgage")
                 actions[1].append(False)
 
             # if the player can afford to unmortgage the property
-            elif player[property_data[_prop_num][3]]["$$$"] >= round((property_data[_prop_num][2] / 2) * 1.1):
+            elif player[property_data[_prop_num]["owner"]]["$$$"] >= round((property_data[_prop_num]["street value"] / 2) * 1.1):
                 actions[0].append("Unmortgage")
                 actions[1].append(True)
 
@@ -1031,7 +1057,7 @@ class display_property_class():
                         self.highest_bidder = list(self.player_bids.keys())[0]
 
                         player[self.highest_bidder]["$$$"] -= self.player_bids[self.highest_bidder]
-                        property_data[self.property][3] = self.highest_bidder
+                        property_data[self.property]["owner"] = self.highest_bidder
                                                 
                         display_property(auctioned_property)
                         self.action = "prop notice"
@@ -1101,10 +1127,16 @@ class display_property_class():
                     trade_screen(player_turn)
             
             elif user_input in ["m", "M"]:
-                if property_data[self.property][4] in [0, 1]:
-                    property_data[self.property][4] = -1
-                    player[player_turn]["$$$"] += int(property_data[self.property][2] / 2)
+                if property_data[self.property]["upgrade state"] in [1, 2]:
+                    property_data[self.property]["upgrade state"] = -1
+                    player[player_turn]["$$$"] += int(property_data[self.property]["street value"] / 2)
                     display_property(self.property)
+
+                elif property_data[self.property]["upgrade state"] == -1:
+                    print("\n    === property already mortgaged ===\n\n    ", end = "")
+
+                elif property_data[self.property]["upgrade"] > 2:
+                    print("\n    === you cannot mortgage an upgraded property. sell all houses first ===    \n\n", end = "")
 
 
 display_property = display_property_class()
@@ -1203,7 +1235,7 @@ class chance_cards_class():
             player[player_turn]["last pos"] = player[player_turn]["pos"]
 
             # rounds the player to the nearest station
-            player[player_turn]["pos"] = math.ceil(player[player_turn]["pos"] / 10) * 10 + 5
+            player[player_turn]["pos"] = ceil(player[player_turn]["pos"] / 10) * 10 + 5
 
             if player[player_turn]["pos"] >= 40:
                 player[player_turn]["pos"] -= 40
@@ -1453,22 +1485,22 @@ def player_action(_pos):
         update_player_position(player[player_turn]["last pos"], "remove")
 
     elif _pos not in [0, 10, 20, 40]:
-        _prop = return_number_from_pos[player[player_turn]["pos"]]
-        _owner = property_data[_prop][3]
-        if property_data[_prop][3] == 0:
+        _prop = prop_from_pos[player[player_turn]["pos"]]
+        _owner = property_data[_prop]["owner"]
+        if property_data[_prop]["owner"] == 0:
             current_action = "property"
         else:
-            if property_data[_prop][4] in [2, 3, 4, 5, 6]: # upgrade 1 is for colour sets
+            if property_data[_prop]["upgrade state"] > 2:
                 player[player_turn]["$$$"] -= property_data[_prop][property_data[_prop][4] + 5]
                 player[_owner]["$$$"] += property_data[_prop][property_data[_prop][4] + 5]
-            elif property_data[_prop][4] == 1:
 
-                player[player_turn]["$$$"] -= property_data[_prop][6] * 2
-                player[_owner]["$$$"] += property_data[_prop][6] * 2
+            elif property_data[_prop]["upgrade state"] == 2:
+                player[player_turn]["$$$"] -= property_data[_prop]["rent"] * 2
+                player[_owner]["$$$"] += property_data[_prop]["rent"] * 2
 
-            elif property_data[_prop][4] == 0: 
-                player[player_turn]["$$$"] -= property_data[_prop][6]
-                player[_owner]["$$$"] += property_data[_prop][6]
+            elif property_data[_prop]["upgrade state"] == 1:
+                player[player_turn]["$$$"] -= property_data[_prop]["rent"]
+                player[_owner]["$$$"] += property_data[_prop]["rent"]
 
             if player[player_turn]["$$$"] < 0:
                 player_is_broke(player_turn, abs(player[player_turn]["$$$"]))
@@ -1476,7 +1508,7 @@ def player_action(_pos):
 
 def homescreen():
     if dev_mode == False:
-        os.system("cls")
+        run_command("cls")
 
     # the 'current_screen' variable is used for user input, to make sure that the correct output happens
     global current_screen
@@ -1614,18 +1646,144 @@ class trade_screen_class():
     """stores all necessary functions for trading"""
 
     def __init__(self):
-        self.player_1 =  [None, 0, [], False]
-        self.player_2 = [None, 0, [], False]
+        self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+        self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+
+        self.nothing_art = ["",
+                            "",
+                            "                                        ╱─────────╮",
+                            "                                        ╲──────╮  │",
+                            "                                               │  │",
+                            "                                               │  │",
+                            "                                               │  │",
+                            "                                               └──┘",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "         ┌──┐       ",
+                            "         │  │       ",
+                            "         │  │       ",
+                            "         │  │       ",
+                            "         │  ╰──────╲",
+                            "         ╰─────────╱"]
+        self.prop_prop_art = ["    ┌──────────────────────────────┐",
+                              "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                              "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╱─────────╮",
+                              "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╲──────╮  │",
+                              "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │           │  │",
+                              "    │                              │           │  │",
+                              "    │                              │           │  │",
+                              "    │                              │           └──┘",
+                              "    │                              │",
+                              "    │                              │───────────────────┐",
+                              "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                              "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                              "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                              "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    │                              │                   │",
+                              "    └──────────────────────────────┘                   │",
+                              "                        │                              │",
+                              "         ┌──┐           │                              │",
+                              "         │  │           │                              │",
+                              "         │  │           │                              │",
+                              "         │  │           │                              │",
+                              "         │  ╰──────╲    │                              │",
+                              "         ╰─────────╱    │                              │",
+                              "                        │                              │",
+                              "                        └──────────────────────────────┘"]
+        self.prop_money_art = ["    ┌──────────────────────────────┐",
+                               "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                               "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                               "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                               "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                               "    │                              │",
+                               "    │                              │",
+                               "    │                              │",
+                               "    │                              │",
+                               "    │                              │",
+                               "    │                              │    ╱─────────╮",
+                               "    │                              │    ╲──────╮  │",
+                               "    │                              │           │  │",
+                               "    │                              │           │  │",
+                               "    │                              │           │  │",
+                               "    │                              │           └──┘",
+                               "    │                              │",
+                               "    │                              │    ┌──────────────────────────────────────────────┐",
+                               "    │                              │   ┌──────────────────────────────────────────────┐│",
+                               "    │                              │  ┌──────────────────────────────────────────────┐││",
+                               "    │                              │  │ |---------------| MONOPOLY |---------------| │││",
+                               "    │                              │  │ | ┌───┐         ‾‾╱‾‾‾‾‾‾╲‾‾        ┌─V─_┐ | │││",
+                               "    └──────────────────────────────┘  │ | │100│      __╱‾‾        ‾‾╲__     │(¯¯❬│ | │││",
+                               "                                      │ | └───┘     ╱ ____   __    __  ╲    └◿°°─┘ | │││",
+                               "                       ┌──┐           │ |          | /_| |  /  \  /  \  |          | │││",
+                               "                       │  │           │ |          |  _| |_| (, || (, | |          | │││",
+                               "                       │  │           │ | ┌_/\_┐    \_|___| \__/  \__/_╱     ┌───┐ | │││",
+                               "                       │  │           │ | │|__|│       ╲__        __╱        │100│ | │││",
+                               "                       │  ╰──────╲    │ | └────┘          ╲______╱           └───┘ | ││┘",
+                               "                       ╰─────────╱    │ |------------------------------------------| │┘ ",
+                               "                                      └──────────────────────────────────────────────┘  "]
+        self.prop_prop_money_art = ["    ┌──────────────────────────────┐",
+                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╱─────────╮",
+                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╲──────╮  │",
+                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │           │  │",
+                                    "    │                              │           │  │",
+                                    "    │                              │           │  │",
+                                    "    │                              │           └──┘",
+                                    "    │                              │",
+                                    "    │                              │───────────────────┐",
+                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
+                                    "    │                              │                   │",
+                                    "    │                              │                   │",
+                                    "    │                              │                   │",
+                                    "    │                              │    ┌──────────────────────────────────────────────┐",
+                                    "    │                              │   ┌──────────────────────────────────────────────┐│",
+                                    "    │                              │  ┌──────────────────────────────────────────────┐││",
+                                    "    │                              │  │ |---------------| MONOPOLY |---------------| │││",
+                                    "    │                              │  │ | ┌───┐         ‾‾╱‾‾‾‾‾‾╲‾‾        ┌─V─_┐ | │││",
+                                    "    └──────────────────────────────┘  │ | │100│      __╱‾‾        ‾‾╲__     │(¯¯❬│ | │││",
+                                    "                        │             │ | └───┘     ╱ ____   __    __  ╲    └◿°°─┘ | │││",
+                                    "         ┌──┐           │             │ |          | /_| |  /  \  /  \  |          | │││",
+                                    "         │  │           │             │ |          |  _| |_| (, || (, | |          | │││",
+                                    "         │  │           │             │ | ┌_/\_┐    \_|___| \__/  \__/_╱     ┌───┐ | │││",
+                                    "         │  │           │             │ | │|__|│       ╲__        __╱        │100│ | │││",
+                                    "         │  ╰──────╲    │             │ | └────┘          ╲______╱           └───┘ | ││┘",
+                                    "         ╰─────────╱    │             │ |------------------------------------------| │┘",
+                                    "                        │             └──────────────────────────────────────────────┘",
+                                    "                        └──────────────────────────────┘"]
 
         self.action = None
         self.action2 = None
         self.is_trade = False
-        self.curr_player = self.player_1[0]
+        self.curr_player = self.player_1["player"]
 
     def __call__(self, player):
         """adds the given player as player 1 of the bid"""
 
-        try: self.player_1[0] = int(player)
+        try: self.player_1["player"] = int(player)
         except: pass
         else: self.other_player_prompt()
 
@@ -1636,10 +1794,10 @@ class trade_screen_class():
         if there isn't first player, then the current player is chosen
         """
 
-        if self.player_1[0] == None:
-            self.player_1[0] = player_turn
+        if self.player_1["player"] == None:
+            self.player_1["player"] = player_turn
         self.queued_prop = prop_
-        if dev_mode == False: os.system("cls")
+        if dev_mode == False: run_command("cls")
         self.action = "player select"
         self.is_trade = True
 
@@ -1657,7 +1815,7 @@ class trade_screen_class():
         print()
 
         for i in range(players_playing):
-            if i + 1 != self.player_1[0]: 
+            if i + 1 != self.player_1["player"]: 
                 self.other_players.append(str(i + 1))
                 self.spacing.append(3)
 
@@ -1672,21 +1830,21 @@ class trade_screen_class():
         """displays the current player offers"""
 
         self.action = "offer screen"
-        if dev_mode == False: os.system("cls")
+        if dev_mode == False: run_command("cls")
         print()
         print("    ╔═══════════════════════════════╗ ╔═══════════════════════════════╗")
         print("    ║                               ║ ║                               ║")
-        print(f"    ║        PLAYER {self.player_1[0]} OFFER:        ║ ║        PLAYER {self.player_2[0]} OFFER:        ║")
+        print(f"    ║        PLAYER {self.player_1['player']} OFFER:        ║ ║        PLAYER {self.player_2['player']} OFFER:        ║")
         print("    ║                               ║ ║                               ║")
 
         extra_space = ["", ""]
-        for i in range(28 - len(str(self.player_1[1]))):
+        for i in range(28 - len(str(self.player_1["$$$"]))):
             extra_space[0] += " "
 
-        for i in range(28 - len(str(self.player_2[1]))):
+        for i in range(28 - len(str(self.player_2["$$$"]))):
             extra_space[1] += " "
 
-        print(f"    ║ ${self.player_1[1]}{extra_space[0]} ║ ║ ${self.player_2[1]}{extra_space[1]} ║")
+        print(f"    ║ ${self.player_1['$$$']}{extra_space[0]} ║ ║ ${self.player_2['$$$']}{extra_space[1]} ║")
         print("    ║                               ║ ║                               ║")
                
         # prints offered properties, space is left blank if run out
@@ -1697,16 +1855,16 @@ class trade_screen_class():
             property_ = ["", ""]
             seperator = ["│","│"]
             try:
-                for ii in range(21 - len(property_data[self.player_1[2][i]][0])): extra_space[0] += " "
-                if property_data[self.player_1[2][i]][4] == -1: is_mortgaged[0] = "M"
+                for ii in range(21 - len(property_data[self.player_1[2][i]]["name"])): extra_space[0] += " "
+                if property_data[self.player_1[2][i]]["upgrade state"] == -1: is_mortgaged[0] = "M"
             except:
                 extra_space[0] = "                     "
                 property_[0] = ""
                 seperator[0] = " "
                 
             try:
-                for ii in range(21 - len(property_data[self.player_2[2][i]][0])): extra_space[1] += " "
-                if property_data[self.player_2[2][i]][4] == -1: is_mortgaged[1] = "M"
+                for ii in range(21 - len(property_data[self.player_2[2][i]]["name"])): extra_space[1] += " "
+                if property_data[self.player_2[2][i]]["upgrade state"] == -1: is_mortgaged[1] = "M"
             except:
                 extra_space[1] = "                     "
                 property_[1] = ""
@@ -1720,7 +1878,7 @@ class trade_screen_class():
         
         props = False
         for i in property_data:
-            if i[3] == self.curr_player: props = True
+            if i["owner"] == self.curr_player: props = True
 
         if self.curr_player == self.player_1[0]:
             _prompt = f"Swap to P{self.player_2[0]}"
@@ -1736,10 +1894,40 @@ class trade_screen_class():
         adds the property to a player's offer dependent on ownership.
         if the owner isn't one of the players trading, nothing happens.
         """
-        if property_data[property_][3] == self.player_1[0]:
+        if property_data[property_]["owner"] == self.player_1[0]:
             self.player_1[2].append(property_)
-        elif property_data[property_][3] == self.player_2[0]:
+        elif property_data[property_]["owner"] == self.player_2[0]:
             self.player_2[2].append(property_) 
+
+    def trade_completed(self):
+        #reduces unnecessary money transfer (eg: $50, $30) > ($20, $0)
+        if self.player_1["$$$"] != 0 and self.player_2["$$$"] != 0:
+            x = min(self.player_1["$$$"], self.player_2["$$$"])
+            self.player_1["$$$"] -= x
+            self.player_2["$$$"] -= x
+
+        # if players are ONLY swapping properties
+        if self.player_1["$$$"] == 0 and self.player_2["$$$"] == 0:
+            if len(self.player_1["props"]) + len(self.player_2["props"]) > 0:
+                for i in self.prop_prop_art: print(i)
+            else: 
+                for i in self.nothing_art: print(i)
+
+        # if a player is ONLY donating money
+        elif len(self.player_1["props"]) == 0 and len(self.player_2["props"]) == 0:
+            print("    === you can't just [give money] ===\n    ", end = "")
+
+        # if both players are swapping properties (AND MONEY)
+        elif len(self.player_1["props"]) != 0 and len(self.player_2["props"]) != 0:
+            for i in self.prop_prop_money_art: print(i)
+
+        # if a player is swapping properties for money
+        else:
+            for i in self.prop_money_art: print(i)
+
+        if dev_mode == False: run_command("cls")
+        print()
+        print("")
 
     def input_management(self, _input):
         """determines what to do with user input"""
@@ -1747,7 +1935,7 @@ class trade_screen_class():
 
             has_properties = False
             for i in property_data:
-                if i[3] == self.player_1:
+                if i["owner"] == self.player_1:
                     has_properties = True
 
             if has_properties == True:
@@ -1779,7 +1967,7 @@ class trade_screen_class():
 
                         # clears the conversation and recreates prompts
                         self.action2 = None
-                        if dev_mode == False: os.system("cls")
+                        if dev_mode == False: run_command("cls")
                         for i in create_button_prompts(self.other_players, spacing = self.spacing):
                             print(i)
                 else:
@@ -1811,7 +1999,7 @@ class trade_screen_class():
                 
                 has_properties = False
                 for i in property_data:
-                        if i[3] == self.curr_player:
+                        if i["owner"] == self.curr_player:
                             has_properties = True
                             break
                 if has_properties == True:
@@ -1826,8 +2014,14 @@ class trade_screen_class():
                     self.curr_player = self.player_1[0]
 
             elif user_input in ["a", "A"]:
-                self.player_1[3] == True
-                self.curr_player = self.player_2[0]
+                if self.curr_player == self.player_1[0]:
+                    self.player_1[3] = True
+                    self.curr_player = self.player_2[0]
+                    if self.player_2[3] == True:
+                        self.trade_completed()
+                else: 
+                    self.player_2[3] = True                    
+                    self.curr_player = self.player_1[0]
                     
         elif self.action == "money":
             try:
@@ -1837,7 +2031,7 @@ class trade_screen_class():
                     self.player_2[1] = int(_input)
              
             except:
-                print("\n    === command not recognised. please enter a number (you can enter [0])===\n\n   ", end = "")
+                print("\n    === command not recognised. please enter a number (you can enter [0]) ===\n\n   ", end = "")
 
 
 trade_screen = trade_screen_class()
@@ -1849,7 +2043,7 @@ def refresh_board():
 
     current_screen = "game"
     if dev_mode == False:
-        os.system("cls")
+        run_command("cls")
 
     # some of the emojis don't display properly in VS, distorting the board, but looks normal in terminal
     print("")
@@ -1879,7 +2073,7 @@ def refresh_board():
     button_states = [False, False, False, True]
 
     for i in range(28):
-        if property_data[i][3] == player_turn: 
+        if property_data[i]["owner"] == player_turn: 
             button_states[1] = True; 
             break
 
@@ -1901,7 +2095,7 @@ def refresh_board():
     print("    | Bow Street 🟧🟧|                                                                                                  |🟩🟩  Bond St.  |")
 
     space_dependant_actions = [["", ""],[True, True]]
-    if current_action == "property" and player[player_turn]["$$$"] >= property_data[return_number_from_pos[player[player_turn]["pos"]]][2]:  
+    if current_action == "property" and player[player_turn]["$$$"] >= property_data[prop_from_pos[player[player_turn]["pos"]]]["street value"]:  
         button_list = create_button_prompts(["Buy property", "Auction"])
     elif current_action == "property":
         button_list = create_button_prompts(["Buy property", "Auction"], [False, True])
@@ -2072,7 +2266,7 @@ def new_game():
     player_display_location[0][7] = players_playing - 1
     update_player_position(0)
 
-    start_time = time.time()
+    start_time = time()
 
     display_game_notice()
 
@@ -2082,7 +2276,7 @@ def display_game_notice():
     current_screen = "game_notice"
 
     if dev_mode == False:
-        os.system("cls")
+        run_command("cls")
 
     print()
     print("    ╔════════════════════════════════════════════════════════════════╗")
@@ -2103,7 +2297,7 @@ def display_game_notice():
 
 def new_game_select():
     if dev_mode == False:
-        os.system("cls")
+        run_command("cls")
 
     global current_screen
     global name_detection
@@ -2164,7 +2358,7 @@ def read_save(_file, _encoding = "utf-8"):
         exec(_line)    
    
     # this subtracts the time played on the save from the start time so the end-screen calculations reflect the extra time played
-    start_time = time.time() - time_played
+    start_time = time() - time_played
 
     if game_version != true_game_version:
         raise Exception("=== save is not the same version as game")
@@ -2206,11 +2400,11 @@ def save_game_to_file(*variables):
 
     # since only modified properties are saved, they have their own check
     for i in range(28):
-        if property_data[i][3] != 0:
+        if property_data[i]["owner"] != None:
             save_file.write(f"property_data[{i}] = {property_data[i]}\n")
 
     # the time is rounded to the nearest second 
-    save_file.write(f"time_played = {str(round(time.time() - start_time))}\n")
+    save_file.write(f"time_played = {str(round(time() - start_time))}\n")
 
     save_file.close()
 
@@ -2231,24 +2425,24 @@ def bankruptcy():
     if _count == 1:
 
         # total amount of seconds played
-        _total = round(time.time() - start_time)
+        _total = round(time() - start_time)
 
         # bit of simple math that converts a integer of seconds played into Xh Ym Zs format
-        _hours = math.floor(_total/3600)
+        _hours = floor(_total/3600)
         _remainder = _total % 3600
-        _minutes = math.floor(_remainder / 60)
+        _minutes = floor(_remainder / 60)
         _seconds = _remainder % 60
 
         _length = len(str(_hours)) + len(str(_minutes)) + len(str(_seconds))
 
         extra_space = ""
-        for ii in range(math.floor((6 - _length) / 2)): extra_space += " "
+        for ii in range(floor((6 - _length) / 2)): extra_space += " "
 
         extra_extra_space = ""
         if _length % 2 == 1: extra_extra_space = " "
 
         if dev_mode == False:
-            os.system('cls')
+            run_command('cls')
         print("    ╔════════════════════════════════════════════════════════════════╗")
         print("    ║                                                                ║")
         print("    ║                       CONGRATULATIONS :)                       ║")
@@ -2260,18 +2454,17 @@ def bankruptcy():
         print("    ║                                                                ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print("\n    ", end = "")
-        sys.exit()
-
+        exit()
 
 while True:
 
-    # the reason for this check is that detecting user input pauses the program, and so I disable it for the animations
+    # detecting user input pauses the program, and so is disables for the animations
     if current_die_rolling == 0:
         user_input = input()
         input_confirmation = True
     else:
         if current_die_rolling != 3:
-             sleep(0.25)
+             sleep(250)
              refresh_board()
              dice_roll_animation()
 
@@ -2297,7 +2490,7 @@ while True:
                             update_player_position(x + player[player_turn]["last pos"] - 40, "remove")
                         else:
                             update_player_position(39, "remove")
-                    sleep(0.5)
+                    sleep(500)
                     refresh_board()
 
                 # the only exception would be once the iterator has ran out...
@@ -2339,7 +2532,7 @@ while True:
 
             # in dedication to Nick Tho, who always uses his phone with night-shift enabled at the maximum intensity
             # changes the background to yellow
-            os.system('echo -e "\033[43;37m"')
+            run_command('echo -e "\033[43;37m"')
             homescreen()
 
             print("\n=== Nick Tho always uses night-shift on maxium intensity, I'm not trying to be racist ===\n\n")
@@ -2408,21 +2601,18 @@ while True:
         # recording entered names
         elif name_detection == True:
 
-            # it is important to know if the character being inputted is one or two characters and act accordingly...
-            #  ...as having the width be too long or short distorts the board
+            # measures inputted name width, as having the width 
+            # be too long or short distorts the board
             def char_width(char):
-                width = unicodedata.east_asian_width(char)
-             
+            
                 # filters out unnecessary widths
-                return width in ("F", "W")
+                return width(char) in ("F", "W")
 
             # this counts the character width inputted, enforces 2 characters width
             x = 0
             for i in user_input:
-                if char_width(i) == True:
-                    x += 2
-                else:
-                    x += 1
+                if char_width(i) == True: x += 2
+                else: x += 1
             
             if user_input in ["  ", r"\\"]:
                 print("\n    === nice try. ===\n\n    ", end = "")
@@ -2487,7 +2677,7 @@ while True:
         elif user_input in ["p", "P"]:
             has_properties = False
             for i in range(28):
-                if property_data[i][3] == player_turn:
+                if property_data[i]["owner"] == player_turn:
                     has_properties = True
                     break
 
@@ -2520,13 +2710,13 @@ while True:
             print("\n    === game saved. [Enter] to return to the main menu ===\n\n    ", end = "")
 
         elif user_input in ["b", "B"] and current_action == "property":
-            _prop = return_number_from_pos[player[player_turn]["pos"]]
+            _prop = prop_from_pos[player[player_turn]["pos"]]
 
-            if player[player_turn]["$$$"] >= property_data[_prop][2]:
+            if player[player_turn]["$$$"] >= property_data[_prop]["street value"]:
             
-                property_data[_prop][3] = int(player_turn)
+                property_data[_prop]["owner"] = int(player_turn)
                 player[player_turn]["total properties"] += 1
-                player[player_turn]["$$$"] -= property_data[_prop][2]
+                player[player_turn]["$$$"] -= property_data[_prop]["owner"]
                 current_action = None
                 refresh_board()
 
@@ -2534,7 +2724,7 @@ while True:
                 print("\n    === you can't afford this property ===\n\n    ", end="")
 
         elif user_input in ["a", "A"] and current_action == "property":
-            auctioned_property = return_number_from_pos[player[player_turn]["pos"]]
+            auctioned_property = prop_from_pos[player[player_turn]["pos"]]
 
             # since bidding will require 'player_turn' to change, this stores the proper player turn
             display_property.true_player_turn = player_turn.index
@@ -2593,7 +2783,7 @@ while True:
 
         elif user_input == "showchangedprops" and dev_mode == True:
             for i in property_data:
-                if i[3] != 0:
+                if i[3] != None:
                     print(i)
 
         elif user_input == "setplayerprops" and dev_mode == True:
@@ -2602,9 +2792,10 @@ while True:
             while xx != "done":
                 if xx == "all":
                     for i in range(28):
-                        property_data[i][3] = x
+                        property_data[i]["owner"] = x
+                    xx = "done"
                 else:
-                    property_data[int(xx)][3] = i
+                    property_data[int(xx)]["owner"] = i
                 xx = input("    === what property (commands: 'all', 'done'): ") 
             refresh_board()
 
@@ -2686,7 +2877,7 @@ while True:
         except:
             print("\n    === command not recognised. please enter the number to the left of the desired property ===\n\n    ", end = "")
         else:
-            if property_data[int(return_number_from_pos[user_input])][3] == player[player_turn]["pos"]:
+            if property_data[int(prop_from_pos[user_input])]["owner"] == player[player_turn]["pos"]:
                 display_property(int(user_input))
             else:
                 print("\n    === you don't own that property. please enter the number to the left of the desired property ===\n\n    ", end = "")
