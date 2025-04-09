@@ -3,7 +3,7 @@ from os import system as run_command
 from random import randint, shuffle
 from sys import exit
 from time import time
-from unicodedata import east_asian_width as width
+from unicodedah
 from better_iterator import better_iter
 
 # setting the terminal name
@@ -27,11 +27,7 @@ passed_go = False
 # ...4th-7th items if players 1-4 are on the current space | total numbers of players on the space)
 player_display_location = [["          ", "          ", "regular", False, False, False, False, 0] for i in range(41)]
 
-player_display_location[7] = ["    ()    ", "    ()    ", "irregular", False, False, False, False, 0]
-player_display_location[22] = ["    / /   ", "    / /   ", "irregular", False, False, False, False, 0]
-player_display_location[36] = ["  \\_|    ", "  \\_|    ", "irregular", False, False, False, False, 0]
-player_display_location[40] = [" ║ ║ ║ ║ ", " ║ ║ ║ ║ ", "irregular", False, False, False, False, 0]
-
+playe
 # all of the art for dice frames, used for the dice rolling animation
 dice_image_frame = [[] for i in range(7)]
 
@@ -46,15 +42,10 @@ dice_image_frame[6] = ["│  o  o  o  │", "│           │", "│  o  o  o  
 doubles_art = [
     r"✨    |¯¯¯\   /¯¯\  |¯||¯| |¯⁐¯\ |¯|   |¯¯¯| /¯¯¯|   ✨   ",
     r"   ✨ | [) | | () | | || | | --⟨ | |__ | ⁐|_ \ ¯¯\ ✨     ",
-    r" ✨   |___/   \__/   \__/  |_⁐_/ |___| |___| |⁐⁐_/     ✨",
-]
-
+    r" ✨   |___/   \__/   \__/  |_⁐_/ 
 passed_go_art = [
     r"✨    \¯\/¯/ /¯¯\  |¯||¯|    |¯¯¯\  /¯\   /¯⁐⁐| /¯⁐⁐| |¯¯¯| |¯¯¯\      /¯¯¯|   /¯¯\     ✨  ",
-    r"   ✨  \  / | () | | || |    | ⁐_/ / ^ \  \__ \ \__ \ | ⁐|_ | [) |    | (⁐¯¯| | () | ✨     ",
-    r" ✨    /_/   \__/   \__/     |_|  /_/¯\_\ |___/ |___/ |___| |___/      \___/   \__/       ✨",
-]
-
+    r"   ✨  \  / | () | | || |  
 player_turn_display = [[] for i in range(5)]
 
 # art displaying the current turn
@@ -85,9 +76,7 @@ property_data[12] = {"name": "Marlborough Street"   , "type": "property", "stree
 property_data[13] = {"name": "Vine Street"          , "type": "property", "street value": 200, "owner": None, "upgrade state": 0, "colour set": 3, "rent": 16, "h1 rent": 80 , "h2 rent": 220, "h3 rent": 600 , "h4 rent": 800 , "h5 rent": 1000, "house cost": 100}
 property_data[14] = {"name": "Strand"               , "type": "property", "street value": 220, "owner": None, "upgrade state": 0, "colour set": 4, "rent": 18, "h1 rent": 90 , "h2 rent": 250, "h3 rent": 700 , "h4 rent": 875 , "h5 rent": 1050, "house cost": 150}
 property_data[15] = {"name": "Fleet Street"         , "type": "property", "street value": 220, "owner": None, "upgrade state": 0, "colour set": 4, "rent": 18, "h1 rent": 90 , "h2 rent": 250, "h3 rent": 700 , "h4 rent": 875 , "h5 rent": 1050, "house cost": 150}
-property_data[16] = {"name": "Trafalgar Square"     , "type": "property", "street value": 240, "owner": None, "upgrade state": 0, "colour set": 4, "rent": 18, "h1 rent": 90 , "h2 rent": 250, "h3 rent": 700 , "h4 rent": 875 , "h5 rent": 1050, "house cost": 150}
-property_data[17] = {"name": "Fenchurch St. Station", "type": "station" , "street value": 200, "owner": None, "upgrade state": 0}
-property_data[18] = {"name": "Leicester Square"     , "type": "property", "street value": 260, "owner": None, "upgrade state": 0, "colour set": 5, "rent": 22, "h1 rent": 110, "h2 rent": 330, "h3 rent": 800 , "h4 rent": 975 , "h5 rent": 1150, "house cost": 150}
+property_data[16] = {"name": "T]state": 0, "colour set": 5, "rent": 22, "h1 rent": 110, "h2 rent": 330, "h3 rent": 800 , "h4 rent": 975 , "h5 rent": 1150, "house cost": 150}
 property_data[19] = {"name": "Coventry Street"      , "type": "property", "street value": 260, "owner": None, "upgrade state": 0, "colour set": 5, "rent": 22, "h1 rent": 110, "h2 rent": 330, "h3 rent": 800 , "h4 rent": 975 , "h5 rent": 1150, "house cost": 150}
 property_data[20] = {"name": "Water Works"          , "type": "utility" , "street value": 150, "owner": None, "upgrade state": 0}
 property_data[21] = {"name": "Piccadilly"           , "type": "property", "street value": 280, "owner": None, "upgrade state": 0, "colour set": 5, "rent": 24, "h1 rent": 120, "h2 rent": 360, "h3 rent": 850 , "h4 rent": 1025, "h5 rent": 1200, "house cost": 150}
@@ -104,8 +93,7 @@ station_rent = {1: 25, 2: 50, 3: 100, 4: 200}
 # this converts the player's position into the corresponding property
 prop_from_pos = {1:0, 3:1, 5:2, 6:3, 8:4, 9:5, 11:6, 12:7, 13:8, 14:9,
     15:10, 16:11, 18:12, 19:13, 21:14, 23:15, 24:16, 25:17, 26:18, 27:19, 28:20,
-    29:21, 31:22, 32:23, 34:24, 35:25, 37:26, 39:27
-}
+    29:21, 31:22,]
 
 
 def sleep(_time: int):
@@ -133,17 +121,7 @@ def ceil(_num: float):
 def create_button_prompts(prompts = ["", "", "", ""], prompt_state = "default", spacing = "default"):
     """
     creates a list of ascii art that displays button looking action prompts.
-    words can be a maximum of 12 characters long per button, and there is
-    the ability to grey out actions through prompt_state (boolean values).
-    the default spacing is 4 spaces front, then 3 between buttons
-
-    change prompt_state/ spacing as lists. eg. [True, False], [2, 3, 7]
-
-     ________________
-    |                | note that the brackets are automatically applied to 
-    |   [E]xample    | the first character.
-    |________________| (designed for monospace fonts, otherwise distorted)
-
+    words can be a maxi
     """
     # creating the output list for the art
     button_list = ["", "", "", ""]
