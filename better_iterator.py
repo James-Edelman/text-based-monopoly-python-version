@@ -9,7 +9,7 @@ class better_iter():
     # variables are created when an instance of this class is created
     def __init__(self, _iterable, _end_action = None):
         self.index = -1
-        self.list = _iterable
+        self.list = list(_iterable)
         self.iter_through = False
         
         if _end_action not in ["loop", "exception", None]:
