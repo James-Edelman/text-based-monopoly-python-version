@@ -1,21 +1,21 @@
 class better_iter():
     """
-    set _end_action to either "loop", or "exception", default is none
-    you can also view the current index and the entire iterator.
-    
+    an iterator that allows you to access index, and is more user
+    accessible.
+
+    note: getting current value returns the final item if iterator
+    is unused, since -1 (default index) references the last item.
+
     Created by James E. 2025 with help from Github Copilot
     """
 
+
     # variables are created when an instance of this class is created
-    def __init__(self, _iterable, _end_action = None):
+    def __init__(self, iterable, loop = False):
         self.index = -1
-        self.list = list(_iterable)
+        self.list = list(iterable)
         self.iter_through = False
-        
-        if _end_action not in ["loop", "exception", None]:
-            raise Exception("invalid end action")
-        else:
-            self.end = _end_action
+        self.loop = loop    
        
     # used when "next()" is applied
     def __next__(self):
@@ -31,20 +31,14 @@ class better_iter():
 
         try:
             return self.list[index]
-        except:
+        except IndexError:
 
-            # if the index is out of range but the iterator loops, it is reset to 0
-            # when used in a for loop this will not infinitely loop
-            if self.end == "loop" and self.iter_through == False: 
+            # loops only if it's not a for loop
+            if self.loop == True and self.iter_through == False: 
                 self.index = 0
                 return self.list[self.index]
-
-            # looping takes priority over raising an error, 
-            # a message isn't needed since "next()" also raises one
-            elif self.end == "exception":
-                raise
-
-            # when iterating through a better_iter runs out, stops the loop lock
+                
+            # when iterating through runs out, stops the loop lock
             elif self.iter_through == True:
                 self.iter_through = False
 
@@ -56,13 +50,10 @@ class better_iter():
         self.index -= 1
         try:
             return self.list[self.index]
-        except:
-            if self.end == "loop":
-                self.index = len(self.list) - 1
+        except IndexError:
+            if self.end == True:
+                self.index = 0
                 return self.list[self.index]
-
-            elif self.end == "exception":
-                raise
 
     def __iter__(self):
         self.iter_through = True
@@ -73,7 +64,7 @@ class better_iter():
 
     def __str__(self): return str(self.list[self.index])
      
-    def __int__(self): return self.list[self.index]
+    def __int__(self): return int(self.list[self.index])
 
     def __index__(self): return self.list[self.index]
 
