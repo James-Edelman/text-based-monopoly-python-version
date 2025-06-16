@@ -1,18 +1,36 @@
+﻿"""contains a custom iterator, it's previous() function, and a custom error"""
+
+# except statements catch index errors in case loop is enabled,
+# but it not, this is raised in lieu
+
+# #TriangulatorGang (RW ref)
+class tripple_affirmative(IndexError):
+    def __init__(
+            self, 
+            msg = '''
+            iterator index out of range.
+            
+            "Some said she never had a solution, she just died.
+            And when the systems broke down an erroneous signal was sent."'''
+        ):
+        self.msg = msg
+
+    def __str__(self): return self.msg
+
+
 class better_iter():
     """
     an iterator that allows you to access index, and is more user
     accessible.
 
-    note: getting current value returns the final item if iterator
-    is unused, since -1 (default index) references the last item.
+    an exception is raised if a value is accessed before index set
 
     Created by James E. 2025 with help from Github Copilot
     """
 
-
     # variables are created when an instance of this class is created
-    def __init__(self, iterable, loop = False):
-        self.index = -1
+    def __init__(self, iterable, loop = False, index = 0):
+        self.index = index
         self.list = list(iterable)
         self.iter_through = False
         self.loop = loop    
@@ -45,36 +63,45 @@ class better_iter():
                 # ends the for loop
                 raise StopIteration
 
+            else:
+                raise tripple_affirmative
+
     # used when "previous()" is applied, works opposite of "next()"
     def __previous__(self):
         self.index -= 1
         try:
             return self.list[self.index]
         except IndexError:
-            if self.end == True:
+            if self.loop == True:
                 self.index = 0
                 return self.list[self.index]
+            else:
+                raise tripple_affirmative
 
     def __iter__(self):
         self.iter_through = True
 
-        # custom index means that progress isn't lost in for loops
+        # seperate index means that progress isn't lost in for loops
         self.iter_index = -1
         return self
+
+    def copy(self):
+        """returns a copy of the instance"""
+        return better_iter(self.list, self.loop, self.index)
 
     def __str__(self): return str(self.list[self.index])
      
     def __int__(self): return int(self.list[self.index])
 
-    def __index__(self): return self.list[self.index]
+    def __index__(self): return int(self.list[self.index])
+
+    def __hash__(self): return self.list[self.index]
 
     def __repr__(self):
         output = str(self.list)
         output = "<" + output[1:-1] + ">"
         return output
     
-    def __hash__(self): return self.list[self.index]
-
     def __eq__(self, other): return self.list[self.index] == other
 
     def __gt__(self, other): return self.list[self.index] > other
@@ -85,6 +112,11 @@ class better_iter():
 
     def __le__(self, other): return self.list[self.index] <= other
 
-    def __add__(self, other): return self.list[self.index] + other
+    def __add__(self, other):
+        val = self.list[self.index]
 
-def previous(arg): return arg.__previous__()
+        # determines whether to return a float or int
+        if float(val) % 1 == 0: return int(val) + other
+        else: return float(val) + other
+
+def previous(arg: better_iter): return arg.__previous__()
