@@ -3,12 +3,14 @@ a game of monopoly playable in a text window.
 can be executed as main program or imported
 """
 
+import asyncio # needed for online (to get input and data at the same time)
 from os import system, name # used for clearing the screen
 from random import randint, shuffle # used for dice rolling, chance/CC card shuffling
 from sys import exit # used to end the program
+import socket # online communication
 from time import time # used to determine total play time, for sleep()
 from unicodedata import east_asian_width as width # used to determine if names is correct width
-from better_iterator import better_iter # used for the player turn
+from better_iterator import better_iter, tripple_affirmative # used for the player turn
 
 # setting the terminal name
 print("\033]1;💰 Text-Based Monopoly 💰\007")
@@ -20,10 +22,9 @@ house_total = 32
 hotel_total = 12
 time_played = 0
 game_version = 0.7
-passed_go = False
 player_turn = 1 # needed because python crashes out at def bankruptcy()
                 # using player_turn as a default value before definition
-                # it gets replaced by the proper player turn
+                # (it gets replaced by the proper player turn)
 
 # the players' icons can only appear in certain points, so this list will have the default and modified art for the game board
 # the default space is blank but there are some special cases that are specified individually
@@ -39,8 +40,7 @@ player_display_location[40] = [" ║ ║ ║ ║ ", " ║ ║ ║ ║ ", "irregu
 property_data = [{} for i in range(28)]
 
 # (note: colour set rent is double normal rent, isn't recorded.
-#  mortgage/unmortgage value based on street value; isn't recorded)
-# upgrades: 0 = unpurchased, -1 = mortgaged, 1 = purchased, 2 = colour set, 3 - 8 = upgrades
+#  mortgage/unmortgage value based on street value, isn't recorded)
 property_data[0]  = {"name": "Old Kent Road"        , "type": "property", "street value": 60 , "owner": None, "upgrade state": 0, "colour set": 0, "rent": 2 , "h1 rent": 10 , "h2 rent": 30 , "h3 rent": 90  , "h4 rent": 160 , "h5 rent": 250 , "house cost": 50 }
 property_data[1]  = {"name": "Whitechapel"          , "type": "property", "street value": 60 , "owner": None, "upgrade state": 0, "colour set": 0, "rent": 4 , "h1 rent": 20 , "h2 rent": 60 , "h3 rent": 180 , "h4 rent": 320 , "h5 rent": 450 , "house cost": 50 }
 property_data[2]  = {"name": "Kings Cross Station"  , "type": "station" , "street value": 200, "owner": None, "upgrade state": 0}
@@ -80,21 +80,6 @@ prop_from_pos = {1:0, 3:1, 5:2, 6:3, 8:4, 9:5, 11:6, 12:7, 13:8, 14:9,
 }
 
 
-def get_name(var):
-    """returns the name of a variable.
-    Does not support class attributes"""
-    # stolen from https://www.geeksforgeeks.org/get-variable-name-as-string-in-python/
-    # srsly tho why is there no proper way of getting var names
-    for name, value in globals().items():
-        
-        # explicitely strips dunders from matching
-        if name.startswith("__"):
-            continue
-
-        if value is var:
-            return name
-
-
 def sleep(_time: int):
     """delays thread for inputted milliseconds"""
     start = time()
@@ -113,6 +98,10 @@ def clear_screen(sys: str | None = name):
     else: raise Exception("bro what are you running this on??!!")
 
 
+class switch_to_async(Exception):
+    pass
+
+
 # I'm very proud of this use of typing hints
 def create_button_prompts(
         prompts: list[str],
@@ -123,7 +112,7 @@ def create_button_prompts(
     creates a list of ascii art that displays button-looking prompts.
     words should be a maximum of 12 characters long per button.
 
-    prompt_state defaults to True, but buttons can be greyed out with False
+    prompt_state defaults to True, but buttons can have dashed outlines with False
     the default spacing is 4 spaces front, then 3 between buttons
 
      ________________
@@ -137,7 +126,7 @@ def create_button_prompts(
     extra_space = ["", ""]
     num = len(prompts)
 
-    # if "prompt_state" or "spacing" is left to default, its size is dependant on the amount of prompts
+    # if "prompt_state" or "spacing" is left to default, its size is dependent on the amount of prompts
     if prompt_state == "default":
         prompt_state = []
         for i in range(num):
@@ -171,7 +160,7 @@ def create_button_prompts(
 
         extra_space = ["", ""]
 
-        # this adds an extra space to each side for every two charactrs the prompt is from the maxium, rounded down
+        # this adds an extra space to each side for every two characters the prompt is from the maximum, rounded down
         for ii in range((12 - len(prompts[i])) // 2): extra_space[0] += " "
 
         # if an additional space is needed (instead of an extra 1 on each side) it is added to the right
@@ -181,7 +170,7 @@ def create_button_prompts(
         for ii in range(spacing[i]): button_list[2] += " "
 
         # tries to capitalise the first character,
-        # but if the string, is blank then skipped
+        # but if the string is blank, is skipped
         try: x = prompts[i][0].upper()
         except IndexError: pass
 
@@ -209,6 +198,11 @@ def create_button_prompts(
 
 
 def update_player_position(_pos: int, _action = "add"):
+    """
+    updates the displayed segments where player is shown.
+    action is either 'add' or 'remove', and the positions are 0-27
+    """
+
     global player_display_location
 
     # this is updating the display location by marking that a player is there, and the player's number (1, 2, 3, 4)
@@ -376,19 +370,15 @@ def update_player_position(_pos: int, _action = "add"):
         print(f"{player_display_location[_pos]}  ║  the function was: {_action}. the current player was: {player[player_turn]['char']}")
 
 
-# used for saving game variables
-class custom_class:
-    pass
-
-
-class player_is_broke_class(custom_class):
+class player_is_broke_class():
     def __init__(self):
 
         # a bit sketchy, this assumes the instance is class name without '_class'
         self.__name__ = self.__class__.__name__[:-6]
 
-    def __call__(self, _player: int):
-        """alerts the player that they are in debt/are bankrupt"""
+    def __call__(self, _player: int, cause = None):
+        """alerts the player that they are in debt/are bankrupt
+        cause is passed on to bankruptcy if applicable. check requirements there"""
 
         global current_screen
         current_screen = self.__name__
@@ -455,7 +445,7 @@ class player_is_broke_class(custom_class):
             print()
             print("    ╔════════════════════════════════════════════════════════════════╗")
             print("    ║                                                                ║")
-            print("    ║                      PLAYER ELIMINATED :(                      ║")
+            print(f"    ║                     PLAYER {_player} ELIMINATED :(                     ║")
             print("    ║                                                                ║")
             print("    ║                  you cannot repay your debts,                  ║")
             print("    ║            so you are bankrupt and out of the game.            ║")
@@ -464,19 +454,25 @@ class player_is_broke_class(custom_class):
             print("    ║                                                                ║")
             print("    ║                             [enter]                            ║")
             print("    ╚════════════════════════════════════════════════════════════════╝")
-        
-            # updates the player's status to "bankrupt" and removes them from play
-            player[_player]["status"] = "bankrupt"
+            print("\n    ", end = "")
+            self.action = "whump whump"
+
+            # actions on info after user notified
+            self.bankruptcy_details = [_player, cause]
 
     def input_management(self, user_input):
         """determines what action to perform with user input"""
-        bankruptcy()
+        if self.action == "whump whump":
+            
+            # updates the player's status to "bankrupt" and removes them from play
+            player[self.bankruptcy_details[0]]["status"] = "bankrupt"
+            bankruptcy(*self.bankruptcy_details)
 
 
 player_is_broke = player_is_broke_class()
 
 
-class display_property_list_class(custom_class):
+class display_property_list_class():
     def __init__(self):
         self.player = None
         self.allow_bankruptcy = False
@@ -573,11 +569,15 @@ class display_property_list_class(custom_class):
             if property_data[i]["street value"] < 100: print(" ", end = "")
 
             if property_data[i]["upgrade state"] != -1:
-                print(f" │ ${property_data[i]['house cost']}", end = "")
-                if property_data[i]["house cost"] < 100: print(" ", end = "")
+                print(f"│ ${property_data[i]['house cost']}", end = "")
+                
+                if property_data[i]["house cost"] < 100:
+                    print(" ", end = "")
                     
                 print(" × ", end = "")
-                if property_data[i]["upgrade state"] == 7:   print("🏠🏠🏠🏠 🏨     ║")
+
+                if property_data[i]["upgrade state"] == 7:
+                    print("🏠🏠🏠🏠 🏨     ║")
 
                 else:
 
@@ -586,7 +586,7 @@ class display_property_list_class(custom_class):
                     for ii in range(property_data[i]["upgrade state"] - 2): x += "🏠"
 
                     print(f"{x}", end = "")
-                    for ii in range(15 - (2 * len(x))): print(" ", end = "")
+                    for ii in range(16 - (2 * len(x))): print(" ", end = "")
                     print("║")
             elif property_data[i]["upgrade state"] == -1: print("│ Mortgaged              ║")
 
@@ -636,8 +636,12 @@ class display_property_list_class(custom_class):
             else:
                 trade_screen(player_turn)
 
-        if user_input in ["g", "G"] and self.allow_bankruptcy == True:
+        elif user_input in ["g", "G"] and self.allow_bankruptcy == True:
             bankruptcy(self.player, "bank") # Note to self: fix
+        
+        elif user_input == "#":
+            print("\n   === no, # just means a number, like enter a number from the list ===\n\n    ",end="")
+            
         else:
             try:
                 int(user_input)                
@@ -661,6 +665,7 @@ class display_property_class:
         self.property_queue = []
         self.action = None
         self.action_2 = None
+        self.player_bid_turn = None
 
         self.player_bids = better_iter([
             {"player": None, "$$$": 0},
@@ -698,11 +703,19 @@ class display_property_class:
         regardless of 'bid' value
         """
 
+        # arbitrary args allows prop_num to be blank,
+        # but that causes errors later, and so it caught
+        if len(_prop_num) == 0:
+            raise TypeError("at least one property has to be provided")
+
         # if multiple properties are given or bid is enabled
         if len(_prop_num) > 1 or bid:
             self.action = "auction"
             self.property_queue = list(_prop_num)
-            self.player_bid_turn = player_turn.copy()
+
+            # ensures that a copy isn't made halfway through an auction
+            if not self.player_bid_turn:
+                self.player_bid_turn = player_turn.copy()
 
         if len(_prop_num) > 1:
             print("    === auction queue ===\n")
@@ -715,7 +728,6 @@ class display_property_class:
         # even if one number is given, python creates a one item tuple,
         # which cannot be used as an index, and so is fixed
         self.property = _prop_num[0]
-        _prop_num = _prop_num[0]
         global current_screen
 
         current_screen = self.__name__
@@ -773,7 +785,7 @@ class display_property_class:
 
             return output
 
-        if property_data[_prop_num]["upgrade state"] == -1:
+        if property_data[self.property]["upgrade state"] == -1:
 
             # this class allows the mortgaged property to have a gradient background
             # by changing the outside stripe from lighter to darker and the inside vice versa
@@ -801,14 +813,14 @@ class display_property_class:
                 elif 6 < line < 19: output = display_bids()
                 return output
 
-            m_val = int(property_data[_prop_num]["street value"] / 2)
+            m_val = int(property_data[self.property]["street value"] / 2)
             if len(str(m_val)) == 2           : extra_space[2] = " "
             if len(str(int(m_val * 1.1))) == 2: extra_space[3] = " "
 
-            for i in range((21 - len(property_data[_prop_num]["name"])) // 2): extra_space[0] += " "
-            if len(property_data[_prop_num]["name"]) % 2 == 0: extra_space[1] = " "
+            for i in range((21 - len(property_data[self.property]["name"])) // 2): extra_space[0] += " "
+            if len(property_data[self.property]["name"]) % 2 == 0: extra_space[1] = " "
 
-            # do not be afraid
+            # do not be afraid of the virtual terminal sequences
             print(f"    \x1b[38;2;255;255;255m▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖\x1b[0m{bidding_notice()}")
             print(f"    \x1b[38;2;12;12;12m\x1b[48;2;255;255;255m▌  \x1b[38;2;255;95;59m▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃  \x1b[0m\x1b[38;2;255;255;255m▌\x1b[0m{bidding_notice()}")
             
@@ -819,7 +831,7 @@ class display_property_class:
             print("    \x1b[38;2;255;255;255m▝\x1b[38;2;12;12;12m\x1b[48;2;255;255;255m▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\x1b[0m\x1b[38;2;255;255;255m▘\x1b[0m")
 
         # station cards
-        elif _prop_num in [2, 10, 17, 25]:
+        elif self.property in [2, 10, 17, 25]:
 
             print(f"    ┌──────────────────────────────┐{bidding_notice()}")
             print(f"    │                              │{bidding_notice()}")
@@ -836,15 +848,15 @@ class display_property_class:
 
             # This centers the station name by adding extra whitespace 
             # for every character less than the maximum possible length (21)
-            for ii in range((21 - len(property_data[_prop_num]["name"])) // 2): extra_space[0] += " "
+            for ii in range((21 - len(property_data[self.property]["name"])) // 2): extra_space[0] += " "
             
             # since the upper code can only add two spaces, if the difference
             # between the maximum length and actual length is odd (so the value is even)...
             # ...an extra space is added to the left of the name to center it properly
-            if len(property_data[_prop_num]["name"]) % 2 == 0: extra_space[1] = " "
+            if len(property_data[self.property]["name"]) % 2 == 0: extra_space[1] = " "
 
             print(f"    │                              │{display_bids()}")
-            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num]['name']}     {extra_space[0]}│{display_bids()}")
+            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[self.property]['name']}     {extra_space[0]}│{display_bids()}")
             print(f"    │                              │{display_bids()}")
             print(f"    │ RENT                    $25  │{display_bids()}")
             print(f"    │                              │{display_bids()}")
@@ -858,7 +870,7 @@ class display_property_class:
             print("    └──────────────────────────────┘")
 
         # electric company
-        elif _prop_num == 7:
+        elif self.property == 7:
 
             # because electric company and water works are so different from the other cards, they have their own art
             print(f"    ┌──────────────────────────────┐{bidding_notice()}")
@@ -888,7 +900,7 @@ class display_property_class:
             print("    └──────────────────────────────┘")
 
         # waterworks
-        elif _prop_num == 20:
+        elif self.property == 20:
             print(f"    ┌──────────────────────────────┐{bidding_notice()}")
             print(f"    │                              │{bidding_notice()}")
             print(f"    │           ()━╤╤━()           │{bidding_notice()}")
@@ -921,23 +933,23 @@ class display_property_class:
             print(f"    ┌──────────────────────────────┐{bidding_notice()}")
 
             # this checks what colour set the property is in and adjusts the colour of the printed title deed
-            if property_data[_prop_num]["colour set"] == 0:
+            if property_data[self.property]["colour set"] == 0:
                 colour = "🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫🟫" # brown
 
             # light blue (set 1) and dark blue (set 7) use the same colour
-            elif property_data[_prop_num]["colour set"] in [1, 7]:
+            elif property_data[self.property]["colour set"] in [1, 7]:
                 colour = "🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦"
         
-            elif property_data[_prop_num]["colour set"] == 2:
+            elif property_data[self.property]["colour set"] == 2:
                 colour = "🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪🟪" # purple (there's no pink square emoji)
 
-            elif property_data[_prop_num]["colour set"] == 3:
+            elif property_data[self.property]["colour set"] == 3:
                 colour = "🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧🟧" # orange
 
-            elif property_data[_prop_num]["colour set"] == 4:
+            elif property_data[self.property]["colour set"] == 4:
                 colour = "🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥" # red
 
-            elif property_data[_prop_num]["colour set"] == 5:
+            elif property_data[self.property]["colour set"] == 5:
                 colour = "🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨" # yellow
 
             else:
@@ -949,84 +961,84 @@ class display_property_class:
 
             # see the same code for the stations
             extra_space[0] = ""
-            for ii in range((21 - len(property_data[_prop_num]["name"])) // 2): extra_space[0] += " "
+            for ii in range((21 - len(property_data[self.property]["name"])) // 2): extra_space[0] += " "
 
             extra_space[1] = ""
-            if len(property_data[_prop_num]["name"]) % 2 == 0: extra_space[1] = " "
+            if len(property_data[self.property]["name"]) % 2 == 0: extra_space[1] = " "
 
-            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[_prop_num]['name']}     {extra_space[0]}│{bidding_notice()}")
+            print(f"    │{extra_space[0]}{extra_space[1]}    {property_data[self.property]['name']}     {extra_space[0]}│{bidding_notice()}")
             print(f"    │                              │{bidding_notice()}")
 
             # these just add an extra 1-2 spaces if depending on the length, for rent, colour set rent and all the other stats
             extra_space[0] = ""
-            for ii in range(2 - len(str(property_data[_prop_num]["rent"]))): extra_space[0] += " "
+            for ii in range(2 - len(str(property_data[self.property]["rent"]))): extra_space[0] += " "
 
-            print(f"    │ Rent                   ${property_data[_prop_num]['rent']}{extra_space[0]}   │")
+            print(f"    │ Rent                   ${property_data[self.property]['rent']}{extra_space[0]}   │")
 
 
             extra_space[0] = ""
-            for ii in range(3 - len(str(property_data[_prop_num]["rent"] * 2))): extra_space[0] += " "
+            for ii in range(3 - len(str(property_data[self.property]["rent"] * 2))): extra_space[0] += " "
 
             extra_space[1] = ""
-            for ii in range(3 - len(str(property_data[_prop_num]["h1 rent"]))): extra_space[1] += " "
+            for ii in range(3 - len(str(property_data[self.property]["h1 rent"]))): extra_space[1] += " "
 
-            print(f"    │ Rent with colour set   ${(property_data[_prop_num]['rent'] * 2)}{extra_space[0]}  │{display_bids()}")
+            print(f"    │ Rent with colour set   ${(property_data[self.property]['rent'] * 2)}{extra_space[0]}  │{display_bids()}")
             print(f"    │                              │{display_bids()}")
-            print(f"    │ Rent with 🏠           ${property_data[_prop_num]['h1 rent']}{extra_space[1]}  │{display_bids()}")
+            print(f"    │ Rent with 🏠           ${property_data[self.property]['h1 rent']}{extra_space[1]}  │{display_bids()}")
 
             extra_space[0] = ""
-            for ii in range(3 - len(str(property_data[_prop_num]["h2 rent"]))): extra_space[0] += " "
+            for ii in range(3 - len(str(property_data[self.property]["h2 rent"]))): extra_space[0] += " "
 
             extra_space[1] = ""
-            for ii in range(4 - len(str(property_data[_prop_num]["h3 rent"]))): extra_space[1] += " "
+            for ii in range(4 - len(str(property_data[self.property]["h3 rent"]))): extra_space[1] += " "
 
             extra_space[2] = ""
-            for ii in range(4 - len(str(property_data[_prop_num]["h4 rent"]))): extra_space[2] += " "
+            for ii in range(4 - len(str(property_data[self.property]["h4 rent"]))): extra_space[2] += " "
 
-            print(f"    │ Rent with 🏠🏠         ${property_data[_prop_num]['h2 rent']}{extra_space[0]}  │{display_bids()}")
-            print(f"    │ Rent with 🏠🏠🏠       ${property_data[_prop_num]['h3 rent']}{extra_space[1]} │{display_bids()}")
-            print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[_prop_num]['h4 rent']}{extra_space[2]} │{display_bids()}")
-
-            extra_space[0] = ""
-            for ii in range(4 - len(str(property_data[_prop_num]["h5 rent"]))): extra_space[0] += " "
-
-            print(f"    │                              │{display_bids()}")
-            print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[_prop_num]['h5 rent']}{extra_space[0]} │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
+            print(f"    │ Rent with 🏠🏠         ${property_data[self.property]['h2 rent']}{extra_space[0]}  │{display_bids()}")
+            print(f"    │ Rent with 🏠🏠🏠       ${property_data[self.property]['h3 rent']}{extra_space[1]} │{display_bids()}")
+            print(f"    │ Rent with 🏠🏠🏠🏠     ${property_data[self.property]['h4 rent']}{extra_space[2]} │{display_bids()}")
 
             extra_space[0] = ""
-            for ii in range(4 - len(str(property_data[_prop_num]["house cost"]))): extra_space[0] += " "
+            for ii in range(4 - len(str(property_data[self.property]["h5 rent"]))): extra_space[0] += " "
+
+            print(f"    │                              │{display_bids()}")
+            print(f"    │ Rent with 🏠🏠🏠🏠 🏨  ${property_data[self.property]['h5 rent']}{extra_space[0]} │{display_bids()}")
+            print(f"    │                              │{display_bids()}")
+
+            extra_space[0] = ""
+            for ii in range(4 - len(str(property_data[self.property]["house cost"]))): extra_space[0] += " "
 
             print(f"    │ ---------------------------- │{display_bids()}")        
-            print(f"    │ House/hotel cost       ${property_data[_prop_num]['house cost']}{extra_space[0]} │{display_bids()}")
+            print(f"    │ House/hotel cost       ${property_data[self.property]['house cost']}{extra_space[0]} │{display_bids()}")
             print(f"    │                              │{display_bids()}")
 
             extra_space[0] = ""
-            for ii in range(4 - len(str(property_data[_prop_num]["street value"]))): extra_space[0] += " "
+            for ii in range(4 - len(str(property_data[self.property]["street value"]))): extra_space[0] += " "
 
-            print(f"    │ Street value           ${property_data[_prop_num]['street value']}{extra_space[0]} │")
+            print(f"    │ Street value           ${property_data[self.property]['street value']}{extra_space[0]} │")
 
             extra_space[0] = ""
-            for ii in range(3 - len(str(int(property_data[_prop_num]["street value"] / 2)))): extra_space[0] += " "   
+            for ii in range(3 - len(str(int(property_data[self.property]["street value"] / 2)))): extra_space[0] += " "   
         
-            if property_data[_prop_num]["upgrade state"] != -1:
-                print(f"    │ mortgage value         ${int(property_data[_prop_num]['street value'] / 2)}{extra_space[0]}  │")
+            if property_data[self.property]["upgrade state"] != -1:
+                print(f"    │ mortgage value         ${int(property_data[self.property]['street value'] / 2)}{extra_space[0]}  │")
             else:
-                print(f"    │ unmortgage value       ${int((property_data[_prop_num]['street value'] / 2) * 1.1)}{extra_space[0]}  │")
+                print(f"    │ unmortgage value       ${int((property_data[self.property]['street value'] / 2) * 1.1)}{extra_space[0]}  │")
 
             print("    └──────────────────────────────┘")
 
         if self.action == "auction" and self.player_bids.list[self.player_bid_turn] != 0:
             if self.action_2 == "final chance":
-                print(f"\n    === player {player_turn}, now's your final chance to place a bid, or [S]kip ===\n\n    ", end = "")
+                print(f"\n    === player {self.player_bid_turn}, now's your final chance to place a bid, or [S]kip ===\n\n    ", end = "")
             else:
-                print(f"\n    === player {player_turn}, place a bid or [S]kip ===\n\n    ", end = "")
+                print(f"\n    === player {self.player_bid_turn}, place a bid or [S]kip ===\n\n    ", end = "")
 
         elif self.action == "auction":
             if self.action_2 == "final chance":
-                print(f"\n    === player {player_turn}, now's your final chance to raise your bid, or [S]kip ===\n\n    ", end = "")
+                print(f"\n    === player {self.player_bid_turn}, now's your final chance to raise your bid, or [S]kip ===\n\n    ", end = "")
             else:
-                print(f"\n    === player {player_turn}, either raise your bid or [S]kip ===\n\n    ", end = "")
+                print(f"\n    === player {self.player_bid_turn}, either raise your bid or [S]kip ===\n\n    ", end = "")
 
         elif self.action == "finished":
             print(f"\n    === player {self.highest_bidder} has won the bid, press [Enter] to continue ===\n\n    ", end = "")
@@ -1036,35 +1048,44 @@ class display_property_class:
             actions = [[], [], [4]]
 
             # if the property has no upgrades, can be mortgaged
-            if property_data[_prop_num]["upgrade state"] in [0, 1, 2]:
+            if property_data[self.property]["upgrade state"] in [0, 1, 2]:
                 actions[0].append("Mortgage")
                 actions[1].append(True)
 
             # if the property has upgrades, cannot be mortgaged
-            elif property_data[_prop_num]["upgrade state"] > 2:
+            elif property_data[self.property]["upgrade state"] > 2:
                 actions[0].append("Mortgage")
                 actions[1].append(False)
 
-            # if the property is mortgaged, checks if the player can affoard to unmortgage
-            elif property_data[_prop_num]["upgrade state"] == -1:
+            # if the property is mortgaged, checks if the player can afford to unmortgage
+            elif property_data[self.property]["upgrade state"] == -1:
                 actions[0].append("Unmortgage")
-                if player[property_data[_prop_num]["owner"]]["$$$"] > round((property_data[_prop_num]["street value"] / 2) * 1.1): actions[1].append(True)
-                else                                                                                                             : actions[1].append(False)
+                if player[property_data[self.property]["owner"]]["$$$"] \
+                        > round((property_data[self.property]["street value"] / 2) * 1.1):
+
+                    actions[1].append(True)
+                else:
+                    actions[1].append(False)
             
-            if property_data[_prop_num]["type"] == "property":
+            if property_data[self.property]["type"] == "property":
                 actions[0].append("Add houses")
                 actions[0].append("Sell houses")
                 actions[2].append(3)
                 actions[2].append(3)
-                if 2 <= property_data[_prop_num]["upgrade state"] < 7 and player[property_data[_prop_num]["owner"]]["$$$"] >= property_data[_prop_num]["house cost"]: actions[1].append(True)
-                else                                                                                                                                                : actions[1].append(False)
+                if 2 <= property_data[self.property]["upgrade state"] < 7 and \
+                        player[property_data[self.property]["owner"]]["$$$"] >= property_data[self.property]["house cost"]:
+                    actions[1].append(True)
+                else:
+                    actions[1].append(False)
                 
-                if property_data[_prop_num]["upgrade state"] > 2: actions[1].append(True)
+                if property_data[self.property]["upgrade state"] > 2: actions[1].append(True)
                 else                                            : actions[1].append(False)
 
             actions[2].append(3)
+
             # if the player is trading, and wants to remove a property
-            if trade_screen.is_trade == True and _prop_num in (trade_screen.player_1["props"] or trade_screen.player_2["props"]):
+            if trade_screen.is_trade == True and \
+            self.property in (trade_screen.player_1["props"] or trade_screen.player_2["props"]):
                 actions[0].append("Remove Trade")
                 actions[1].append(True)
             else:
@@ -1094,7 +1115,12 @@ class display_property_class:
                 {"player": None, "$$$": None},
                 {"player": None, "$$$": None}
             ])
+
+            # removes property from queue
             self.property_queue.pop(0)
+
+            # clears the turn counter to ensure a new copy is made next call
+            self.player_bid_turn = None
 
             # checks if there are any items within the list
             if self.property_queue:
@@ -1106,8 +1132,8 @@ class display_property_class:
 
                 # since there could only be one extra property,
                 # bid is explicitly set
-                self(self.property_queue, True)
-                return
+                self(*self.property_queue, bid = True)
+                return # ensures program doesn't return to board
 
             refresh_board()
 
@@ -1132,7 +1158,6 @@ class display_property_class:
                 # if no players want to buy the property
                 elif self.skipped_bids == players_playing * 2:
                     exit_bid(self)
-                    refresh_board()
                     return
 
                 # if someone has won the bid
@@ -1151,7 +1176,7 @@ class display_property_class:
                     # signifies that the auction is over
                     self.action = "prop notice"
 
-                self(self.property)
+                self(*self.property_queue, bid = True)
                     
             else:
 
@@ -1161,7 +1186,7 @@ class display_property_class:
                     if int(user_input) <= bid["$$$"]: valid_bid = False
 
                 if not valid_bid:
-                    print(f"\n    === player {player_turn} either raise your bid or [S]kip ===\n\n    ", end = "")
+                    print(f"\n    === player {self.player_bid_turn} either raise your bid or [S]kip ===\n\n    ", end = "")
                     return
 
                 # note bids indices are 0-3, players are 1-4
@@ -1178,7 +1203,7 @@ class display_property_class:
                     reverse = True
                 )
 
-                display_property(self.property)
+                self(self.property_queue, bid = True)
                     
         elif self.action == "prop notice":
             broke_alert = False
@@ -1194,14 +1219,18 @@ class display_property_class:
 
         else:
             if user_input in ["b", "B"]:
-                display_property_list(player_turn)
+
+                # ensures most recently displayed player is shown
+                display_property_list(display_property_list.player)
   
             elif user_input in ["t", "T"]:
-                if trade_screen.is_trade == True:
+                if trade_screen.is_trade:
                     trade_screen.add_prop_offer(display_property.property)
+                    self(self.property)
+                    print("=== added to offer===\n\n    ", end="")
                 else:
-                    trade_screen(player_turn)
-            
+                    trade_screen(player_turn, self.property)
+
             elif user_input in ["m", "M"]:
                 if property_data[self.property]["upgrade state"] in [1, 2]:
                     property_data[self.property]["upgrade state"] = -1
@@ -1223,7 +1252,7 @@ class display_property_class:
 
                 cost = (property_data[self.property]["street value"] / 2) * 1.1
                     
-                # unmortgages the property if the player can affoard it
+                # unmortgages the property if the player can afford it
                 if player[player_turn]["$$$"] < cost:
                     print("\n    === you cannot afford to unmortgage this property ===\n\n    ", end="")
                     return
@@ -1269,6 +1298,22 @@ class display_property_class:
 
                 player[property_data[self.property]["owner"]]["$$$"] += property_data[self.property]["house coust"] / 2
                 property_data[self.property]["upgrade state"] -= 1
+
+            elif user_input in ["r", "R"] and trade_screen.is_trade:
+
+                # removes the property from the appropriate player's trade
+                if self.property in trade_screen.player_1["props"]:
+                    trade_screen.player_1["props"].remove(self.property)
+
+                elif self.property in trade_screen.player_2["props"]:
+                    trade_screen.player_2["props"].remove(self.property)
+               
+                # alerts the user of the change
+                self(self.property)
+                print("=== removed from offer ===\n\n    ", end="")
+
+            else:
+                print("\n    === command not recognised ===\n\n    ", end="")
 
 
 display_property = display_property_class()
@@ -1333,7 +1378,6 @@ class chance_cards_class:
         """
 
         global player
-        global passed_go
 
         drawn_card = int(self.cards_value[self.index])
 
@@ -1391,7 +1435,7 @@ class chance_cards_class:
             # if the player is moved across GO (to Kings Cross), they gain $200
             if player[player_turn]["pos"] == 5:
                 player[player_turn]["$$$"] += 200
-                passed_go = True
+                refresh_board.passed_go = True
 
             player_action.rent_mgmt(player_turn, 2)
             update_player_position(player[player_turn]["pos"])
@@ -1485,7 +1529,7 @@ class community_chest_cards_class:
 
         self.art = [
                     r"✨     /¯¯¯|  /¯¯\  |¯¯\/¯¯| |¯¯\/¯¯| |¯||¯| |¯¯\|¯| |¯¯¯| |¯¯¯¯¯| \¯\/¯/    /¯¯¯| |¯| |¯| |¯¯¯| /¯⁐⁐| |¯¯¯¯¯|   ✨  ",
-                    r"   ✨ | (⁐⁐  | () | | \  / | | \  / | | || | | \ \ | ⁐| |⁐  ¯| |¯   \  /    | (⁐⁐  | ¯¯¯ | | ⁐|_ \__ \  ¯| |¯  ✨    ",
+                    r"   ✨ | (⁐⁐  | () | | \  / | | \  / | | || | | \ \ | _| |_  ¯| |¯   \  /    | (⁐⁐  | ¯¯¯ | | ⁐|_ \__ \  ¯| |¯  ✨    ",
                     r" ✨    \___|  \__/  |_|\/|_| |_|\/|_|  \__/  |_|\__| |___|   |_|    /_/      \___| |_|¯|_| |___| |___/   |_|       ✨",
 ]
         shuffle(self.cards)
@@ -1499,9 +1543,6 @@ class community_chest_cards_class:
 
     def __str__(self):
         return self.cards_message[self.index]
-
-    def __vars__(self) -> dict:
-        """returns all variables, discluding constants"""
 
     def draw_card(self):
         """returns the next shuffled card message"""
@@ -1766,7 +1807,7 @@ class homescreen_class:
               display_game_notice()
 
         elif user_input in ["o", "O"]:
-            print("\n    === buddy i wish. i dont know how 2 code that shit ===\n\n    ", end="")
+            online_config()
 
         elif "nick" in user_input.lower():
 
@@ -1775,7 +1816,7 @@ class homescreen_class:
             print("\x1b[43m")
             self()
 
-            print("=== Nick Tho always uses night-shift on maxium intensity, I'm not trying to be racist ===\n")
+            print("=== Nick Tho always uses night-shift on maximum intensity, I'm not trying to be racist ===\n")
             for i in create_button_prompts(["I'm offended", "Makes sense"]): print(i)
             print("\n    ", end = "")
             self.action = "nicktho"
@@ -1795,42 +1836,195 @@ class homescreen_class:
 homescreen = homescreen_class()
 
 
+class online_config_class:
+    """contains the menus for configuring an online game"""
+    def __init__(self):
+        self.__name__ = self.__class__.__name__[:-6]
+        self.joined_clients = []
+        self.action = None
+        self.display_name = ""
+        self.display_icon = ""
+        self.SERVER_PORT = None
+        self.SERVER_IP_V4 = None
+
+        # creates a new socket for connection
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def __call__(self):
+        global current_screen
+        current_screen = self.__name__
+
+        self.action = "name 1"
+        clear_screen()
+        print()
+        print("    === enter display name (this is different to icon shown on board) ===\n\n    ", end="")
+
+    def mode_select(self):
+        clear_screen()
+        self.action = None
+        print()
+        for line in create_button_prompts(["Host", "Join", "Back"], spacing=[4, 3, 6]):
+            print(line)
+        print("\n    ", end = "")
+
+    async def wait_for_clients_screen(self, connection_details: str):
+        """the host's screen for displaying joined clients."""
+        global current_screen
+        current_screen = self.__name__
+        clear_screen()
+
+        extra_space = ["", ""]
+
+        for ii in range((64 - len(connection_details)) // 2): extra_space[0] += " "
+        if len(connection_details) % 2 == 1: extra_space[1] = " "
+
+        print()
+        print("    ╔════════════════════════════════════════════════════════════════╗")
+        print("    ║                                                                ║")
+        print("    ║                       CONNECTION DETAILS:                      ║")
+        print("    ║                                                                ║")
+        print(f"    ║{extra_space[0]}{extra_space[1]}{connection_details}{extra_space[0]}║")
+        print("    ║                                                                ║")
+        print("    ║            Share this code with up to 3 other people           ║")
+        print("    ║                   for them to join this game                   ║")             
+        print("    ║                                                                ║")
+        print("    ╚════════════════════════════════════════════════════════════════╝")
+        print()
+        # buttons are adjusted once a user joins
+        for line in create_button_prompts(
+                ["Start game", "kick user", "back"],
+                [False, False, True],
+                [4, 3, 6]
+            ):
+            print(line)
+        print("\n\x1b[s")
+        print("    === joined users: ===\n\n\x1b[s", end = "")
+        
+        loop = asyncio.get_running_loop()
+        while True:
+            
+            # gets a client            
+            client, _ = await loop.run_in_executor(None, self.socket.accept) # port is discarded
+            name = client.recv(1024).decode() # client sends name immediately after connection
+            client.sendall(self.display_name.encode()) # client waits for host to send name
+
+            client.setblocking(False)
+            self.joined_clients.append([name, client])
+            print(f"    === {name} joined ===\n\x1b[u", end="", flush=True)
+
+    def input_management(self, user_input):
+        """determines what action to perform with user input"""
+
+        if self.action == "name 1":
+
+            # gets display name then player icon (see below)
+            self.display_name = user_input
+            print("\n    === enter player icon ===\n\n    ", end="")
+            self.action = "name 2"
+
+        elif self.action == "name 2":
+
+            # enforces 2 characters width for name
+            name_width = 0
+            for char in user_input:
+                if width(char) in ("F", "W"): name_width += 2
+                else: name_width += 1
+            
+            if user_input in ["  ", r"\\"]:
+                print("\n    === nice try. ===\n\n    ", end = "")
+            elif name_width > 2:
+                print("\n    === icon too large, try a different icon (eg: '😊' or 'JE') ===\n\n    ", end="")
+            elif name_width < 2:
+                print("\n    === icon too small, try a different icon (eg: '😊' or 'JE') ===\n\n    ", end="")
+            else:
+                self.display_icon = user_input
+
+            self.mode_select()
+
+        elif self.action == "host wait screen":
+            print("pog")
+
+        elif user_input in ["h", "H"]:
+            
+            # gets user IP
+            self.U_NAME = socket.gethostname()
+            self.U_IP_V4 = socket.gethostbyname(self.U_NAME)
+            self.port = 42069
+
+            # this is extremely unlikely, but I want to ensure no errors
+            # if port is taken, goes to the next one and tries again
+            unbound = True
+            while unbound:
+                try:
+                    self.socket.bind((self.U_IP_V4, self.port))
+                except OSError:
+                    self.port += 1
+                else:
+                    unbound = False
+
+            self.socket.listen()
+            self.action = "host wait screen"
+            asyncio.run(self.shell())
+            
+        elif user_input in ["j", "J"]:
+            self.action = "join"
+            print("\n    enter connection details: ", end = "")
+
+            self.SERVER_IP_V4, SERVER_PORT = input().strip().split("-")
+            self.SERVER_PORT = int(SERVER_PORT)
+            
+            self.socket.connect((self.SERVER_IP_V4, self.SERVER_PORT))
+
+            # protocol is for joined clients to send name, receive host name
+            self.socket.sendall(self.display_name.encode())
+            self.HOST_NAME = self.socket.recv(1024).decode()
+            print(f"\n    === connected to {self.HOST_NAME}'s game. waiting for host start ===")
+
+        elif user_input in ["b", "B"]:
+            homescreen()
+
+    async def shell(self):
+        await asyncio.gather(self.wait_for_clients_screen(f"{self.U_IP_V4}-{self.port}"), get_input)
+
+online_config = online_config_class()
+
+
 class trade_screen_class:
     """stores all necessary functions for trading"""
     def __init__(self):
         self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
         self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
 
-        self.nothing_art = ["",
-                            "",
-                            "                                        ╱─────────╮",
-                            "                                        ╲──────╮  │",
-                            "                                               │  │",
-                            "                                               │  │",
-                            "                                               │  │",
-                            "                                               └──┘",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "         ┌──┐       ",
-                            "         │  │       ",
-                            "         │  │       ",
-                            "         │  │       ",
-                            "         │  ╰──────╲",
-                            "         ╰─────────╱"]
+        self.nothing_art = r"""
+
+                                                ╱─────────╮
+                                                ╲──────╮  │
+                                                       │  │
+                                                       │  │
+                                                       │  │
+                                                       └──┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    ┌──┐       
+                    │  │       
+                    │  │       
+                    │  │       
+                    │  ╰──────╲
+                    ╰─────────╱"""
         self.prop_prop_art = ["    ┌──────────────────────────────┐",
                               "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
                               "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╱─────────╮",
@@ -1894,68 +2088,69 @@ class trade_screen_class:
                                r"                       │  ╰──────╲    │ | └────┘          ╲______╱           └───┘ | ││┘",
                                "                       ╰─────────╱    │ |------------------------------------------| │┘ ",
                                "                                      └──────────────────────────────────────────────┘  "]
-        self.prop_prop_money_art = ["    ┌──────────────────────────────┐",
-                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
-                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╱─────────╮",
-                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╲──────╮  │",
-                                    "    │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │           │  │",
-                                    "    │                              │           │  │",
-                                    "    │                              │           │  │",
-                                    "    │                              │           └──┘",
-                                    "    │                              │",
-                                    "    │                              │───────────────────┐",
-                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
-                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
-                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
-                                    "    │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │",
-                                    "    │                              │                   │",
-                                    "    │                              │                   │",
-                                    "    │                              │                   │",
-                                    "    │                              │    ┌──────────────────────────────────────────────┐",
-                                    "    │                              │   ┌──────────────────────────────────────────────┐│",
-                                    "    │                              │  ┌──────────────────────────────────────────────┐││",
-                                    r"    │                              │  │ |---------------| MONOPOLY |---------------| │││",
-                                    r"    │                              │  │ | ┌───┐         ‾‾╱‾‾‾‾‾‾╲‾‾        ┌─V─_┐ | │││",
-                                    r"    └──────────────────────────────┘  │ | │100│      __╱‾‾        ‾‾╲__     │(¯¯❬│ | │││",
-                                    r"                        │             │ | └───┘     ╱ ____   __    __  ╲    └◿°°─┘ | │││",
-                                    r"         ┌──┐           │             │ |          | /_| |  /  \  /  \  |          | │││",
-                                    r"         │  │           │             │ |          |  _| |_| (, || (, | |          | │││",
-                                    r"         │  │           │             │ | ┌_/\_┐    \_|___| \__/  \__/_╱     ┌───┐ | │││",
-                                    r"         │  │           │             │ | │|__|│       ╲__        __╱        │100│ | │││",
-                                    r"         │  ╰──────╲    │             │ | └────┘          ╲______╱           └───┘ | ││┘",
-                                    r"         ╰─────────╱    │             │ |------------------------------------------| │┘",
-                                    "                        │             └──────────────────────────────────────────────┘",
-                                    "                        └──────────────────────────────┘"]
+        self.prop_prop_money_art = r"""
+            ┌──────────────────────────────┐
+            │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │
+            │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╱─────────╮
+            │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │    ╲──────╮  │
+            │ 🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦 │           │  │
+            │                              │           │  │
+            │                              │           │  │
+            │                              │           └──┘
+            │                              │
+            │                              │───────────────────┐
+            │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │
+            │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │
+            │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │
+            │                              │🟦🟦🟦🟦🟦🟦🟦🟦🟦 │
+            │                              │                   │
+            │                              │                   │
+            │                              │                   │
+            │                              │    ┌──────────────────────────────────────────────┐
+            │                              │   ┌──────────────────────────────────────────────┐│
+            │                              │  ┌──────────────────────────────────────────────┐││
+            │                              │  │ |---------------| MONOPOLY |---------------| │││
+            │                              │  │ | ┌───┐         ‾‾╱‾‾‾‾‾‾╲‾‾        ┌─V─_┐ | │││
+            └──────────────────────────────┘  │ | │100│      __╱‾‾        ‾‾╲__     │(¯¯❬│ | │││
+                                │             │ | └───┘     ╱ ____   __    __  ╲    └◿°°─┘ | │││
+                 ┌──┐           │             │ |          | /_| |  /  \  /  \  |          | │││
+                 │  │           │             │ |          |  _| |_| () || () | |          | │││
+                 │  │           │             │ | ┌_/\_┐    \_|___| \__/  \__/_╱     ┌───┐ | │││
+                 │  │           │             │ | │|__|│       ╲__        __╱        │100│ | │││
+                 │  ╰──────╲    │             │ | └────┘          ╲______╱           └───┘ | ││┘
+                 ╰─────────╱    │             │ |------------------------------------------| │┘
+                                │             └──────────────────────────────────────────────┘
+                                └──────────────────────────────┘"""
 
         self.action = None
-        self.action2 = None
         self.is_trade = False
-        self.curr_player = self.player_1["player"]
+        self.queued_prop = None
+        self.curr_player = self.player_1
         self.__name__ = self.__class__.__name__[:-6]
 
-    def __call__(self, player):
-        """adds the given player as player 1 of the bid"""
-
-        try: self.player_1["player"] = int(player)
-        except: pass
-        else: self.other_player_prompt()
-
-    def other_player_prompt(self, prop_ = None):
+    def __call__(self, player_: int | None = player_turn , queued_prop: int | None = None):
         """
-        prompts the player who they would like to trade with.
-        if a property is given, it is added once a player is chosen.
-        if there isn't first player, then the current player is chosen
-        """
+        adds the given player as player 1 of the bid,
+        and prompts the player who they would like to trade with.
+        
+        If there isn't first player, then the current player is chosen
 
-        if self.player_1["player"] == None:
-            self.player_1["player"] = player_turn
-        self.queued_prop = prop_
+        If a property is given, it will be added to player one's offer,
+        after other trading player has been selected
+        """
+        global current_screen
+
+        try: self.player_1["player"] = int(player_)
+        except ValueError: self.player_1["player"] = int(player_turn)
+    
+        if queued_prop:
+            self.player_1["props"].append(queued_prop)
+
         clear_screen()
         self.action = "player select"
         self.is_trade = True
 
-        global current_screen 
-        current_screen = self.__name
+        current_screen = self.__name__
 
         self.other_players = []
         self.spacing = []
@@ -1967,9 +2162,10 @@ class trade_screen_class:
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print()
 
-        for i in range(players_playing):
-            if i + 1 != self.player_1["player"]: 
-                self.other_players.append(str(i + 1))
+        # gets the other players, adds them as available options
+        for player_ in player.keys():
+            if player_ != self.player_1["player"]: 
+                self.other_players.append(str(player_))
                 self.spacing.append(3)
 
         self.other_players.append("Back")
@@ -1984,12 +2180,15 @@ class trade_screen_class:
         global current_screen
         current_screen = self.__name__
 
+        # wow an actually valid use for a lambda expression :O
+        tick = lambda p: '✅' if self.__getattribute__(f"player_{p}")['accepted?'] else '  '
+
         self.action = "offer screen"
         clear_screen()
         print()
         print("    ╔═══════════════════════════════╗ ╔═══════════════════════════════╗")
         print("    ║                               ║ ║                               ║")
-        print(f"    ║        PLAYER {self.player_1['player']} OFFER:        ║ ║        PLAYER {self.player_2['player']} OFFER:        ║")
+        print(f"    ║     {tick("1")} PLAYER {self.player_1['player']} OFFER:        ║ ║     {tick("2")} PLAYER {self.player_2['player']} OFFER:        ║")
         print("    ║                               ║ ║                               ║")
 
         extra_space = ["", ""]
@@ -2002,45 +2201,73 @@ class trade_screen_class:
         print(f"    ║ ${self.player_1['$$$']}{extra_space[0]} ║ ║ ${self.player_2['$$$']}{extra_space[1]} ║")
         print("    ║                               ║ ║                               ║")
                
+        # ands extra space between the properties and the border
+        add_bottom_line = False
+
         # prints offered properties, space is left blank if run out
         for i in range(max(len(self.player_1["props"]), len(self.player_2["props"]))):
+
+            # see previous comment
+            add_bottom_line = True
 
             extra_space = ["", ""]
             is_mortgaged = [" ", " "]
             property_ = ["", ""]
             seperator = ["│","│"]
+
+            # attempts to display a new line with the players' properties.
+            # if one has more than another, the space is blank
             try:
-                for ii in range(21 - len(property_data[self.player_1["props"][i]]["name"])): extra_space[0] += " "
-                if property_data[self.player_1["props"][i]]["upgrade state"] == -1: is_mortgaged[0] = "M"
+                prop_ = property_data[self.player_1["props"][i]]
             except IndexError:
                 extra_space[0] = "                     "
                 property_[0] = ""
                 seperator[0] = " "
-                
+            else:
+                property_[0] = prop_["name"]
+                for ii in range(21 - len(prop_["name"])):
+                    extra_space[0] += " "
+
+                if prop_["upgrade state"] == -1:
+                    is_mortgaged[0] = "M"
+
+            # performed for player 2 now
             try:
-                for ii in range(21 - len(property_data[self.player_2["props"][i]]["name"])): extra_space[1] += " "
-                if property_data[self.player_2["props"][i]]["upgrade state"] == -1: is_mortgaged[1] = "M"
+                prop_ = property_data[self.player_2["props"][i]]             
             except IndexError:
                 extra_space[1] = "                     "
                 property_[1] = ""
                 seperator[1] = " "
-                
+            else:
+                property_[1] = prop_["name"]
+                for ii in range(21 - len(prop_["name"])):
+                    extra_space[1] += " "
 
+                if prop_["upgrade state"] == -1:
+                    is_mortgaged[1] = "M"
+                
             print(f"    ║ {property_[0]}{extra_space[0]} {seperator[0]} {is_mortgaged[0]}     ║ ║ {property_[1]}{extra_space[1]} {seperator[1]} {is_mortgaged[1]}     ║")
+
+            if add_bottom_line:
+                print("    ║                               ║ ║                               ║")
 
         print("    ╚═══════════════════════════════╝ ╚═══════════════════════════════╝")
         print()
         
         props = False
         for i in property_data:
-            if i["owner"] == self.curr_player: props = True
+            if i["owner"] == self.curr_player["player"]: props = True
 
-        if self.curr_player == self.player_1["player"]:
+        if self.curr_player == self.player_1:
             _prompt = f"Swap to P{self.player_2['player']}"
         else:
             _prompt = f"Swap to P{self.player_1['player']}"
 
-        for i in create_button_prompts(["Offer money", "Properties", _prompt, "Accept trade", "Back"], [True, props, True, True, True], [4, 3, 3, 3, 6]):
+        for i in create_button_prompts(
+                ["Offer money", "Properties", _prompt, "Accept trade", "Cancel"],
+                [True, props, True, True, True],
+                [4, 3, 3, 3, 6]
+            ):
             print(i)
         print("\n    ", end = "")
 
@@ -2055,113 +2282,97 @@ class trade_screen_class:
             self.player_2["props"].append(_property) 
 
     def trade_completed(self):
-        #reduces unnecessary money transfer (eg: $50, $30) > ($20, $0)
-        if self.player_1["$$$"] != 0 and self.player_2["$$$"] != 0:
-            x = min(self.player_1["$$$"], self.player_2["$$$"])
-            self.player_1["$$$"] -= x
-            self.player_2["$$$"] -= x
+        clear_screen()
+        print(self.player_1)
+        print(self.player_2)
+        # displays trade successful art
+        # if players trade nothing, this variant appears
 
-        # if players are ONLY swapping properties
-        if self.player_1["$$$"] == 0 and self.player_2["$$$"] == 0:
-            if len(self.player_1["props"]) + len(self.player_2["props"]) > 0:
-                for i in self.prop_prop_art: print(i)
-            else: 
-                for i in self.nothing_art: print(i)
-
-        # if a player is ONLY donating money
-        elif len(self.player_1["props"]) == 0 and len(self.player_2["props"]) == 0:
-            
-            print("    === you can't just [give money] ===\n    ", end = "")
-            self.action2 = "donate"
-
-        # if both players are swapping properties (AND MONEY)
-        elif len(self.player_1["props"]) > 0 and len(self.player_2["props"]) > 0:
-            for i in self.prop_prop_money_art: print(i)
-
-        # if a player is swapping properties for money
+        if not self.player_1["props"] and not self.player_2["props"] and \
+           self.player_1["$$$"] == 0 and self.player_2["$$$"] == 0:
+            print(self.nothing_art)
         else:
-            for i in self.prop_money_art: print(i)
+            print(self.prop_prop_money_art)
+        print("\n    === trade completed [Enter] ===\n\n    ", end = "")
+        self.action = "trade complete"
 
+        # adds the players offers to the opposite player
+        player[self.player_1["player"]]["$$$"] += self.player_2["$$$"]
+        player[self.player_2["player"]]["$$$"] += self.player_1["$$$"]
 
-        if self.action2 != "donate":
+        # subtracts the players offers from their own money
+        player[self.player_1["player"]]["$$$"] -= self.player_1["$$$"]
+        player[self.player_2["player"]]["$$$"] -= self.player_2["$$$"]
 
-            # adds the players offers to the opposite player
-            player[self.player_1["player"]]["$$$"] += self.player_2["$$$"]
-            player[self.player_2["player"]]["$$$"] += self.player_1["$$$"]
+        # updates the properties
+        for prop in self.player_1["props"]: property_data[prop]["owner"] = self.player_2["player"]  
+        for prop in self.player_2["props"]: property_data[prop]["owner"] = self.player_1["player"]
+        
+        self.is_trade = False
 
-            # subtracts the players offers from their own money
-            player[self.player_1["player"]]["$$$"] -= self.player_1["$$$"]
-            player[self.player_2["player"]]["$$$"] -= self.player_2["$$$"]
+        # (debt checks happen after user accept,
+        # hence player_1/2 isn't cleared yet)
 
-            # updates the properties
-            for prop in self.player_1["props"]: prop["owner"] = self.player_2["player"]  
-            for prop in self.player_2["props"]: prop["owner"] = self.player_1["player"]
+    def input_management(self, user_input):
+        """determines what action to perform with user input"""
+        if user_input in ["c", "C"]:
 
             # clears player offers
             self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
             self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
-            
-        clear_screen()
-        print("\n    ", end="")
+            self.is_trade = False
+            self.action = None
 
-    def input_management(self, user_input):
-        """determines what action to perform with user input"""
-        if user_input in ["b", "B"]:
-
-            has_properties = False
-            for i in property_data:
-                if i["owner"] == self.player_1:
-                    has_properties = True
-
-            if has_properties == True:
-                display_property_list(player_turn)
-            else:
-                broke_alert = False
-                for i in range(players_playing):
-                    if player[i + 1]["$$$"] < 0:
-                        player_is_broke(i + 1)
-                        broke_alert = True
-                        break
-
-                if broke_alert == False:
-                    refresh_board()
+            refresh_board()
 
         elif self.action == "player select":
             try:
                 int(user_input)
             except ValueError:
-                if self.action2 == "message":
-                    if user_input in ["p", "P"]:
-                        self.player_2 = self.player_1
-                        self.action2 = None
-                        self.action = None
-                        self.display_trade_window()
-                        print("=== if you insist... ===\n\n    ", end="")
+                
+                if user_input in ["b", "B"]:
+                    self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+                    self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+        
+                    self.is_trade = False
+                    self.action = None
+                    refresh_board()
 
-                    elif user_input in ["o", "O"]:
+                if self.action != "message":
+                    return
 
-                        # clears the conversation and recreates prompts
-                        self.action2 = None
-                        self.other_player_prompt()
-                        
-                else:
-                    print("\n    === command not recognised. Please enter a number. ===\n\n", end = "")
+                # if the action is 'message' (player wants to trade with themselves)
+                self.action = None
 
+                if user_input in ["p", "P"]:
+                    self.player_2 = self.player_1
+                    self.display_trade_window()
+                    print("=== if you insist... ===\n\n    ", end="")
+
+                elif user_input in ["o", "O"]:
+
+                    # clears the conversation and recreates prompts
+                    self(self.player_1["player"], self.queued_prop)
+                    
             else:
                 if user_input in self.other_players:
+
                     self.player_2["player"] = int(user_input)
                     self.action = None
+
+                    # adds queued property once player selected
                     if self.queued_prop != None:
                         self.add_prop_offer(self.queued_prop)
                         self.queued_prop = None
-                    self.curr_player = self.player_1["player"]
+
+                    self.curr_player = self.player_1
                     self.display_trade_window()
 
                 elif int(user_input) == self.player_1["player"]: 
                     print("\n    === you can't trade with yourself! ===\n\n")
-                    for i in create_button_prompts(["Pleeeeeeease", "Ok"]):
-                        print(i)
+                    for i in create_button_prompts(["Pleeeeeeease", "Ok"]): print(i)
                     print("\n    ", end="")
+                    self.action = "message"
 
                 else:
                     print("\n    === that player does not exist ===\n\n    ", end = "")
@@ -2169,39 +2380,47 @@ class trade_screen_class:
         elif self.action == "offer screen":
             if user_input in ["o", "O"]:
                 self.action = "money"
-                print(f"\n    === player {self.curr_player}, enter cash offer (you can exchange more money than you currently have) ===\n\n    ", end = "")
+                print(f"\n    === player {self.curr_player["player"]}, enter cash offer (you can exchange more money than you currently have) ===\n\n    ", end = "")
 
             elif user_input in ["p","P"]:
                 
                 has_properties = False
                 for i in property_data:
-                        if i["owner"] == self.curr_player:
+                        if i["owner"] == self.curr_player["player"]:
                             has_properties = True
                             break
                 if has_properties == True:
-                    display_property_list(self.curr_player)
+                    display_property_list(self.curr_player["player"])
                 else:
                     print("\n    === you have no properties to view ===\n\n    ", end = "")
 
             elif user_input in ["s", "S"]:
-                if self.curr_player == self.player_1[0]:
-                    self.curr_player = self.player_2[0]
+                if self.curr_player == self.player_1:
+                    self.curr_player = self.player_2
                 else:
-                    self.curr_player = self.player_1[0]
+                    self.curr_player = self.player_1
+                self.display_trade_window()
 
             elif user_input in ["a", "A"]:
-                if self.curr_player == self.player_1[0]:
-                    self.player_1[3] = True
-                    self.curr_player = self.player_2[0]
-                    if self.player_2[3] == True:
-                        self.trade_completed()
+                # marks the user as having accepted, switches to other player
+                if self.curr_player == self.player_1:
+                    self.player_1["accepted?"] = True
+                    self.curr_player = self.player_2
                 else: 
-                    self.player_2[3] = True                    
-                    self.curr_player = self.player_1[0]
+                    self.player_2["accepted?"] = True                    
+                    self.curr_player = self.player_1
+
+                if self.curr_player["accepted?"] == True:
+                    self.trade_completed()
+                else:
+                    self.display_trade_window()
+
+            else:
+                print("\n    === command not recognised ===\n\n    ", end = "")
                     
         elif self.action == "money":
             try:
-                if self.curr_player == self.player_1["player"]:
+                if self.curr_player == self.player_1:
                     self.player_1["$$$"] = int(user_input)
                 else:
                     self.player_2["$$$"] = int(user_input)
@@ -2210,11 +2429,37 @@ class trade_screen_class:
             except ValueError:
                 print("\n    === command not recognised. please enter a number (you can enter [0]) ===\n\n   ", end = "")
 
+        elif self.action == "trade complete":
+            self.action = None
+
+            broke_alert = False
+            # ensures that if a player is in debt,
+            # the appropriate screen is raised.
+            if player[self.player_1["player"]]["$$$"] < 0:
+                broke_alert = True
+                player_is_broke(self.player_1["player"], self.player_2["player"])
+
+            elif player[self.player_2["player"]]["$$$"] < 0:
+                broke_alert = True
+                player_is_broke(self.player_2["player"], self.player_1["player"])
+     
+            # clears player offers
+            self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+            self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+
+            # board isn't shown if a player has fallen into debt
+            if broke_alert == False:
+                refresh_board()
+        else:
+            print("\n    === command not recognised ===\n\n    ", end = "")
+
 
 trade_screen = trade_screen_class()
 
 
 class refresh_board_class:
+    """displays the game board"""
+
     def __init__(self):
         self.money_structure = better_iter(["outer", "top_info", "bottom_info"], True)
         self.action = None
@@ -2224,6 +2469,7 @@ class refresh_board_class:
             r"   ✨  \  / | () | | || |    | ⁐_/ / ^ \  \__ \ \__ \ | ⁐|_ | [) |    | (⁐¯¯| | () | ✨     ",
             r" ✨    /_/   \__/   \__/     |_|  /_/¯\_\ |___/ |___/ |___| |___/      \___/   \__/      ✨",
         ]
+        self.passed_go = False
         self.player_turn_display = [[] for i in range(5)]
 
         # art displaying the current turn
@@ -2272,12 +2518,11 @@ class refresh_board_class:
         self.money_structure.index = -1
 
         global current_screen
-        global passed_go
 
         current_screen = self.__name__
         clear_screen()
 
-        # some of the emojis don't display properly in VS, distorting the board, but looks normal in terminal
+        # It'll all display fine in terminal, don't worry
         print("")
         print("     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
         print("    \x1b[7m▊\x1b[0m▛               ▎   $220   ▎  __()_   ▎   $220   ▎   $240   \x1b[0m▎   $200 __\x1b[7m▊\x1b[0m   $260   \x1b[7m▊\x1b[0m   $260   ▎   $150   \x1b[7m▊\x1b[0m   $280   \x1b[7m▊\x1b[0m   GO TO JAIL  ▜▎")
@@ -2301,12 +2546,22 @@ class refresh_board_class:
         print("    \x1b[7m▊\x1b[0m COMUNITY CHEST ▎     \\____/     \\_____/    (__)                                                                   \x1b[7m▊\x1b[0m COMUNITY CHEST ▎")
         print(f"    \x1b[7m▊\x1b[0m   {player_display_location[17][1]}   ▎                                                                                                  \x1b[7m▊\x1b[0m   {player_display_location[33][1]}   ▎")
     
-        button_states = [False, False, False, True]
+        button_states = [False, True, False, True]
 
-        # checks if the players owns any properties, greys out the button otherwise
-        for i in range(28):
-            if property_data[i]["owner"] == player_turn: 
-                button_states[1] = True
+        # checks if the players owns any properties, button is 'trade' otherwise
+        x = better_iter(property_data)
+        prompt_2 = "Trade"
+        while prompt_2 == "Trade":
+            try:
+                check_prop = next(x)
+
+            # if all properties have been checked, loop is broken
+            except tripple_affirmative:
+                break
+
+            # if player has properties, the prompt is changed and loop broken
+            if check_prop["owner"] == player_turn: 
+                prompt_2 = "Properties"
                 break
 
         # similar checks are performed for the other prompts
@@ -2317,7 +2572,7 @@ class refresh_board_class:
         if self.action == None and player_movement.dice_rolled == True:
             button_states[2] = True
 
-        button_list = create_button_prompts(["Roll dice","Properties", "End turn", "Save & Exit"], button_states, [4, 3, 3, 6])
+        button_list = create_button_prompts(["Roll dice", prompt_2, "End turn", "Save & Exit"], button_states, [4, 3, 3, 6])
         print(f"    \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎{button_list[0]}          \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎")
         print(f"    \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎{button_list[1]}          \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎")
         print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎{button_list[2]}          \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
@@ -2351,6 +2606,10 @@ class refresh_board_class:
         print(f"    \x1b[7m▊\x1b[0m {player_display_location[14][1]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    \\_\\{player_display_location[36][1]}▎")
         print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print("    \x1b[7m▊\x1b[0m            \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m            ▎")
+        
+        # ensures that floats aren't shown due to my bad code
+        for player_ in player.items(): player_[1]["$$$"] = int(player_[1]["$$$"])
+        
         print(f"    \x1b[7m▊\x1b[0m Whitehall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                {display_money(4)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m Park Lane  ▎")    
         print(f"    \x1b[7m▊\x1b[0m   $140     \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                {display_money(4)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m    $350    ▎")
         print(f"    \x1b[7m▊\x1b[0m {player_display_location[13][1]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                {display_money(4)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[37][1]} ▎")
@@ -2375,6 +2634,7 @@ class refresh_board_class:
         print("    \x1b[7m▊\x1b[0m▙               ▎          │          ▎          ▎          ▎          ▎          ▎          ▎          \x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m               ▟▎")
         print("     ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ")
 
+        # devmode commands are listed here
         if dev_mode == True:
             print("    === devmode commands ===")
             print()
@@ -2391,12 +2651,14 @@ class refresh_board_class:
             print("    \"forcecccard\"")
             print("    \"displayvar\"")
             print("    \"arbitrarycode\"")
+            print("    \"setbidqueue\"")
+            print("    \"dumpsave\"")
             print()
         
-        if passed_go == True:
+        if refresh_board.passed_go == True:
             for line in self.passed_go_art:
                 print(f"    {line}")
-            passed_go = False
+            refresh_board.passed_go = False
 
         print("    ", end="")
 
@@ -2406,12 +2668,11 @@ class refresh_board_class:
 
         if self.action == "trade query" and user_input in ["y", "Y"]:
             trade_screen(player_turn)
-            trade_screen.other_player_prompt()
 
         elif self.action == "trade query":
             self.action = None
 
-        if self.action == "dice_roll_accept":
+        elif self.action == "dice_roll_accept":
             self.action = None
             # moves the cursor above the dice ('ESC[11F') and clears everything below ('ESC[0J')
             print("\x1b[11F\x1b[0J")
@@ -2436,7 +2697,8 @@ class refresh_board_class:
         elif self.action == "save notice": homescreen()
 
         elif user_input in ["r", "R"]:
-            if (player_movement.dice_rolled == False and self.action == None and player[player_turn]["status"] != "jail") or dev_mode != False:
+            if (player_movement.dice_rolled == False and self.action == None and 
+                player[player_turn]["status"] != "jail") or dev_mode != False:
                 if dev_mode != False: print("=== skipped with devmode ===")
                 refresh_board()
                 player_movement.start_roll()
@@ -2454,10 +2716,12 @@ class refresh_board_class:
                     break
 
             if has_properties == False:
-                print("\n    === you don't own any properties. Do you want to initiate a trade instead ([Y]es/[N]o)? ===\n\n    ", end = "")
-                self.action = "trade query"
+                print("\n    === you don't own any properties ===\n\n    ", end = "")
             else:
                 display_property_list(player_turn)
+
+        elif user_input in ["t", "T"]:
+            trade_screen(player_turn)
 
         elif user_input in ["e", "E"]:
             if (player_movement.dice_rolled == True and self.action == None) or dev_mode == True:
@@ -2483,9 +2747,9 @@ class refresh_board_class:
         elif user_input in ["s", "S"]:
 
             save_game_to_file(
-                game_version, players_playing, player_turn, player_movement.doubles_rolled,
-                dev_mode, player_movement.dice_rolled, refresh_board.action, player, chance.cards_value,
-                chance.index,community_chest.cards_value, community_chest.index
+                "game_version", "players_playing", "player_turn", "player_movement.doubles_rolled",
+                "dev_mode", "player_movement.dice_rolled", "refresh_board.action", "player", "chance.cards_value",
+                "chance.index", "community_chest.cards_value", "community_chest.index"
             )
             self.action = "save notice"
             print("\n    === game saved. [Enter] to return to the main menu ===\n\n    ", end = "")
@@ -2512,8 +2776,8 @@ class refresh_board_class:
                     colour_set.append(prop)
                          
             # brown and dark blue (sets 0 and 7) only have two properties in their set
-            if ((len(colour_set) == 3 and _prop["colour set"] not in [0, 7])
-                or (len(colour_set) == 2 and _prop["colour set"] in [0, 7])):
+            if (len(colour_set) == 3 and _prop["colour set"] not in [0, 7]) \
+                or (len(colour_set) == 2 and _prop["colour set"] in [0, 7]):
 
                 for _prop in colour_set: _prop["upgrade state"] = 2
 
@@ -2546,6 +2810,7 @@ class refresh_board_class:
             dev_mode = True
             refresh_board()
 
+        # certainly all of these input()s won't cause online issues
         elif user_input == "setplayerpos" and dev_mode == True:
             x = input("    === which player: ")
             xx = input("    === set pos: ")
@@ -2606,25 +2871,29 @@ class refresh_board_class:
                     for i in range(28): property_data[i]["owner"] = x; property_data[i]["upgrade state"] = 1
                     xx = "done"
                 else:
+                    try:
+                        int(xx)
+                    except ValueError:
+                        print("=== invalid number ===")
+                        xx = input("    === what property (commands: 'all', 'done'): ") 
+                        continue
                     property_data[int(xx)]["owner"] = x
                     property_data[int(xx)]["upgrade state"] = 1
 
                     # checks if the player now owns all the properties in a colour set
-                    count = 0
-                    for i in property_data:
-                        if "colour set" in i.keys():
-                            if (i["colour set"] == property_data[int(xx)]["colour set"]
-                                and i["owner"] == property_data[int(xx)]["owner"]):
-                                count += 1
+                    colour_set = []
+                    for prop in property_data:
+                        if not ("colour set" in prop.keys() and "colour set" in property_data[int(xx)].keys()):
+                            continue
 
+                        if prop["colour set"] == property_data[int(xx)]["colour set"] and prop["owner"] == property_data[int(xx)]["owner"]:
+                            colour_set.append(prop)
+                         
                     # brown and dark blue (sets 0 and 7) only have two properties in their set
-                    if ((count == 3 and property_data[int(xx)]["colour set"] not in [0, 7])
-                        or (count == 2 and property_data[int(xx)]["colour set"] in [0, 7])):
+                    if ((len(colour_set) == 3 and property_data[int(xx)]["colour set"] not in [0, 7])
+                        or (len(colour_set) == 2 and property_data[int(xx)]["colour set"] in [0, 7])):
 
-                        property_data[int(xx)]["upgrade state"] = 2
-                        for i in property_data:
-                            if "colour set" in i.keys():
-                                if i["colour set"] == property_data[int(xx)]["colour set"]: i["upgrade state"] = 2
+                        for _prop in colour_set: _prop["upgrade state"] = 2
                     xx = input("    === what property (commands: 'all', 'done'): ") 
             refresh_board()
 
@@ -2661,6 +2930,29 @@ class refresh_board_class:
         elif user_input == "arbitrarycode" and dev_mode == True:
             exec(input())
 
+        elif user_input == "setbidqueue" and dev_mode == True:
+            u_input = ''
+            queue = []
+            while u_input != "done":
+                u_input = input("enter property (commands: 'done'): ")
+
+                try: queue.append(int(u_input))
+                except ValueError: pass
+
+            input(f"confirm: {queue}")
+            display_property(*queue, bid = True)
+
+        elif user_input == "dumpsave" and dev_mode == True:
+            try:
+                save = open("save_file.james", encoding = "utf-8")
+            except:
+                print("\n    === save not found ===\n\n    ", end = "", flush = True)
+            else:
+                print("===")
+                for line in save: print(line.rsplit("\n")[0])
+                print("===")
+
+                save.close()
         else:
             print("\n    === command not recognised ===\n\n    ", end = "")
 
@@ -2673,13 +2965,12 @@ def new_game():
     global current_screen
     global current_die_rolling
     global player_display_location
-    global passed_go
     global start_time
 
     current_die_rolling = 0
 
     current_screen = "game_notice"
-    passed_go = False    
+    refresh_board.passed_go = False    
          
     # updating the board so all players are on start
     for i in range(players_playing):
@@ -2871,14 +3162,16 @@ def read_save(
     """reads save_file.james as python code"""
     savefile = open(_file, encoding = _encoding)
 
-    # game version will get overwritten, so a copy is recorded to compare with save version to make sure they're the same
+    # game version will get overwritten, so a copy is recorded to
+    # compare with save version to make sure they're the same
     true_game_version = game_version
     
     # totally secure 😎
     for _line in savefile:
         exec(_line, globals())
    
-    # this subtracts the time played on the save from the start time so the end-screen calculations reflect the extra time played
+    # this subtracts the time played on the save from the start time,
+    # so the end-screen calculations reflect the extra time played
     global start_time
     start_time = time() - time_played
 
@@ -2886,10 +3179,10 @@ def read_save(
         raise Exception("=== save is not the same version as game ===")
 
 
-def save_game_to_file(*variables):
+def save_game_to_file(*variables: str):
     """
     writes given variables, modified properties, and time played to
-    save_file.james. the save is created if it does not exist
+    'save_file.james'. the save is created if it does not exist
     """
 
     save_file = open("save_file.james", "w", encoding="utf-8")
@@ -2900,12 +3193,12 @@ def save_game_to_file(*variables):
     for var in variables:
 
         # strings have quotation marks added as otherwise determining type would be difficult
-        if isinstance(var, str):
-            save_file.write(f"{get_name(var)} = '{var}'\n")
-        elif isinstance(var, better_iter):
-            save_file.write(f"{get_name(var)} = better_iter({var.list}, {var.loop}, {var.index})\n")
+        if isinstance(eval(var), str):
+            save_file.write(f"{var} = '{eval(var)}'\n")
+        elif isinstance(eval(var), better_iter):
+            save_file.write(f"{var} = better_iter({eval(var).list}, {eval(var).loop}, {eval(var).index})\n")
         else:
-            save_file.write(f"{get_name(var)} = {var}\n")
+            save_file.write(f"{var} = {eval(var)}\n")
 
     # since only modified properties are saved, they have their own check
     for i in range(28):
@@ -2918,7 +3211,7 @@ def save_game_to_file(*variables):
     save_file.close()
 
 
-def bankruptcy(_player: int | None = int(player_turn), cause: str | None = "bank"):
+def bankruptcy(_player: int | None = int(player_turn), cause = "bank"):
     """
     determines how to handle a player's bankruptcy, based on cause,
     and displays win/game finished screen if applicable
@@ -2927,20 +3220,26 @@ def bankruptcy(_player: int | None = int(player_turn), cause: str | None = "bank
     """
 
     player[_player]["status"] = "bankrupt"
-    player[_player]["$$$"] = 0
 
     # if the player is in debt to the bank, 
     # all properties are returned then auctioned
-    auction_queue = []
     if cause == "bank":
+        auction_queue = []
         for i in range(property_data):
-            if property_data[i]["owner"] == _player:
-                property_data[i]["owner"] = None
-                auction_queue.append(i)
+            if property_data[i]["owner"] != _player:
+                continue
 
-        display_property.true_player_turn = player_turn.index
-        display_property.action = "auction"
-        display_property(auction_queue)
+            # properties remained mortgaged, but don't keep any upgrades
+            if property_data[i]["upgrade state"] != -1:
+                property_data[i]["upgrade state"] == 0
+            property_data[i]["owner"] = None
+            auction_queue.append(i)
+
+        display_property(*auction_queue, bid = True)
+
+    # for some stupid reason, upgraded properties are not transferred,
+    # but are sold and the money is given to the owed player instead.
+    # (monopoly's stupid rules not mine)
     else:
         owed_player = int(cause)
         for _property in property_data:
@@ -2948,22 +3247,25 @@ def bankruptcy(_player: int | None = int(player_turn), cause: str | None = "bank
                 continue
 
             _property["owner"] = owed_player
-
-            # for some stupid reason, upgraded properties are not transferred,
-            # but are sold and the money is given to the owed player instead.
-            # (monopoly's stupid rules not mine)
             upgrades = _property["upgrade state"] - 2
-            _property["upgrade state"] = 1
+            
+            # upgraded properties have to be part of a colour set,
+            # and so are reset to state 2, while un-upgraded properties remain as is
+            if _property["upgrade state"] > 2:
+                _property["upgrade state"] = 2
+
+            # houses are sold back to bank for half price
             if upgrades > 0:
                 player[owed_player]["$$$"] += upgrades * (_property["house cost"] / 2)
 
         # transfers any escape jail cards to the other player
         player[owed_player]["jail passes"] += player[_player]["jail passes"]
+        player[owed_player]["$$$"] += player[_player]["$$$"]
 
     remaining_players = 0
 
     # this is checking how many players remain after a bankruptcy
-    for i in player:
+    for i in player.values():
         if i["status"] == "playing": remaining_players += 1
 
     # if only one player remains, then the game finished screen is displayed
@@ -2986,10 +3288,15 @@ def bankruptcy(_player: int | None = int(player_turn), cause: str | None = "bank
         extra_extra_space = ""
         if _length % 2 == 1: extra_extra_space = " "
 
+        # finds the last player
+        for item in player.items():
+            if item[1]["status"] == "playing":
+                last_player = item[0]
         clear_screen()
+        print()
         print("    ╔════════════════════════════════════════════════════════════════╗")
         print("    ║                                                                ║")
-        print("    ║                       CONGRATULATIONS :)                       ║")
+        print(f"    ║                  CONGRATULATIONS, PLAYER {last_player} :)                  ║")
         print("    ║                                                                ║")
         print("    ║                     You have won the game!                     ║")
         print(f"    ║{extra_space}                 you spent {_hours}h {_minutes}m {_seconds}s to do it                 {extra_extra_space}{extra_space}║")
@@ -3017,7 +3324,9 @@ class player_movement_class:
         self.dice_image_frame[6] = ["│  o  o  o  │", "│           │", "│  o  o  o  │"]
 
         self.dice_rolling_state = "off"
-        self.dice_value = [None, 0, 0, 0]
+
+        # so I can index die 1 as [1] and die 2 as [2]
+        self.dice_value = [None, 0, 0]
         self.dice_countdown = 0
         self.doubles_rolled = 0
         self.dice_rolled = False
@@ -3034,7 +3343,17 @@ class player_movement_class:
             ]
 
     def remove_from_jail(self):
-        pass
+        player[player_turn]["pos"] = 10
+        player[player_turn]["jail time"] = 0
+        player[player_turn]["status"] = "playing"
+
+        # updates the board
+        update_player_position(10)
+        update_player_position(40, "remove")
+
+        # resets the player's roll
+        self.doubles_rolled = 0
+        self.dice_rolled = False
 
     def start_roll(self):
         self.dice_value[1] = randint(1, 6)
@@ -3123,50 +3442,50 @@ class player_movement_class:
 
     def mgmt(self):
         """makes the player hop on all the spaces on the way to their roll"""
+        while player_movement.dice_rolling_state != "off":
 
-        global passed_go
-        global current_screen
-        global player_turn
+            global current_screen
+            global player_turn
 
-        # when either die 1 or die 2 is being rolled
-        if self.dice_rolling_state in [1, 2]:
-            sleep(150)
-            self.dice_roll_animation()
+            # when either die 1 or die 2 is being rolled
+            if self.dice_rolling_state in [1, 2]:
+                sleep(150)
+                self.dice_roll_animation()
 
-        # moves the player's icon forward one space, accounting for passing go
-        elif self.dice_rolling_state == "movement":
-            try:
-                # determines what space the player is added to
-                space = next(self.player_roll_itr) + player[player_turn]["last pos"] - 39
-                if space < 0: space += 40
-                update_player_position(space)
+            # moves the player's icon forward one space, accounting for passing go
+            elif self.dice_rolling_state == "movement":
+                try:
+                    # determines what space the player is added to
+                    space = next(self.player_roll_itr) + player[player_turn]["last pos"] - 39
+                    if space < 0: space += 40
+                    update_player_position(space)
 
-                # removes player from previous space, but if space is negative, add 40,
-                # for when the player passes go (eg: currently at space 0, remove from 39)
-                space -= 1
-                if space < 0: space += 40
-                update_player_position(space, "remove")
+                    # removes player from previous space, but if space is negative, add 40,
+                    # for when the player passes go (eg: currently at space 0, remove from 39)
+                    space -= 1
+                    if space < 0: space += 40
+                    update_player_position(space, "remove")
 
-                sleep(500)
-                refresh_board()
+                    sleep(500)
+                    refresh_board()
 
-            # once the iterator has ran out the player is at the 
-            # correct spot and the board will stop being refreshed
-            except StopIteration:
+                # once the iterator has ran out the player is at the 
+                # correct spot and the board will stop being refreshed
+                except StopIteration:
 
-                # only happens once the player passes go and their position is reset
-                # extra check if the player leaves jail to stop passed go text
-                if player[player_turn]["pos"] < player[player_turn]["last pos"] and player[player_turn]["last pos"] != 40:
-                    player[player_turn]["$$$"] += 200
-                    passed_go = True
+                    # only happens once the player passes go and their position is reset
+                    # extra check if the player leaves jail to stop passed go text
+                    if player[player_turn]["pos"] < player[player_turn]["last pos"] and player[player_turn]["last pos"] != 40:
+                        player[player_turn]["$$$"] += 200
+                        refresh_board.passed_go = True
 
-                player_action(player_turn)
+                    player_action(player_turn)
                    
-                self.dice_rolling_state = "off"
-                if self.doubles_rolled in [0, 3]: self.dice_rolled = True
+                    self.dice_rolling_state = "off"
+                    if self.doubles_rolled in [0, 3]: self.dice_rolled = True
 
-                # board isn't displayed if chance/community chest displays message
-                if refresh_board.action not in ("chance", "community chest"): refresh_board()
+                    # board isn't displayed if chance/community chest displays message
+                    if refresh_board.action not in ("chance", "community chest"): refresh_board()
 
     def dice_roll_animation(self):
         self.dice_countdown -= 1
@@ -3226,23 +3545,78 @@ class player_movement_class:
             # moves the cursor (text output location) to the middle of the die
             print("\x1b[6F")
 
-        elif self.dice_countdown == 0: self.movement_setup()
+        elif self.dice_countdown == 0:
+            global current_screen
+
+            current_screen = refresh_board.__name__
+            refresh_board.action = "dice_roll_accept"
+
+            # this is updating the player's last position, so that the player's icon can be removed from the board
+            player[player_turn]["last pos"] = player[player_turn]["pos"]
+
+            # increases the doubles streak the player has, or resets it to 0
+            if self.dice_value[1] == self.dice_value[2]: self.doubles_rolled += 1
+            else: self.doubles_rolled = 0
+            
+            # gives player time to check roll (after next logic)
+            print("\x1b[5E")
+            print("    === [Enter] to continue ===\n\n    ", end = "")
+
+            # disables the dice to receive user input, but then is re-enabled
+            self.dice_rolling_state = "off"
+
+            # determines player movement length
+            self.player_roll_itr = iter(range(self.dice_value[1] + self.dice_value[2]))
+
+            # the player escapes jail if they roll doubles
+            if player[player_turn]["status"] == "jail":
+                if self.doubles_rolled == 0:
+                    player[player_turn]["jail time"] += 1
+
+                    # cancels the player movement
+                    self.dice_rolled = True
+
+            # rolling 3 doubles in a row sends the player to jail
+            elif self.doubles_rolled == 3:
+
+                # this function needs to be accessed externally when using GooJ free cards
+                self.remove_from_jail()
+
+            if player[player_turn]["status"] != "jail":
+
+                # this is adding the dice roll's value to the player's position
+                player[player_turn]["pos"] = (player[player_turn]["pos"] + self.dice_value[1] + self.dice_value[2])
+
+                # makes sure that the player's position is valid
+                if player[player_turn]["pos"] >= 40 :
+                    player[player_turn]["pos"] -= 40
 
 
 player_movement = player_movement_class()
 
-# this [all of the below] is so stupid.
-# who tf would import this, and HOW
+
 def run():
     homescreen()
     while True:
-
-        # detecting user input pauses the program, and so is disables for the animations
-        if player_movement.dice_rolling_state == "off":
+        try:
             globals()[current_screen].input_management(input())
-        else:
-            player_movement.mgmt()
+        except switch_to_async:
+            asyncio.run(run_async)
 
+async def get_input():
+    print("receiving user input:")
+    while True:
+        loop = asyncio.get_running_loop()
+        u_input = await loop.run_in_executor(None, input)
+        globals()[current_screen].input_management(u_input)
+
+async def get_data():
+    pass
+
+async def run_async():
+    await asyncio.gather(get_input, get_data)
+
+    
 # perhaps I should start all others with trailing 
 # underscores so this is the only accessible function
 if __name__ == "__main__":

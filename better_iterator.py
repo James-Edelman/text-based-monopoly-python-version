@@ -5,6 +5,8 @@
 
 # #TriangulatorGang (RW ref)
 class tripple_affirmative(IndexError):
+    '''"Some said she never had a solution, she just died.
+        And when the systems broke down an erroneous signal was sent."'''
     def __init__(
             self, 
             msg = '''
@@ -20,12 +22,16 @@ class tripple_affirmative(IndexError):
 
 class better_iter():
     """
-    an iterator that allows you to access index, and is more user
-    accessible.
+    an iterator that allows you to access the index,
+    and sucks less. Allows you to loop when completed.
 
     an exception is raised if a value is accessed before index set
 
-    Created by James E. 2025 with help from Github Copilot
+    note: str() returns current value,
+    use repr() for viewing entire iter
+
+
+    Created by James E. 2025 with help from GitHub Copilot
     """
 
     # variables are created when an instance of this class is created
