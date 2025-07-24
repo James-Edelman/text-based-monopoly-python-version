@@ -2,8 +2,6 @@
 
 # except statements catch index errors in case loop is enabled,
 # but it not, this is raised in lieu
-
-# #TriangulatorGang (RW ref)
 class tripple_affirmative(IndexError):
     '''"Some said she never had a solution, she just died.
         And when the systems broke down an erroneous signal was sent."'''
@@ -34,14 +32,12 @@ class better_iter():
     Created by James E. 2025 with help from GitHub Copilot
     """
 
-    # variables are created when an instance of this class is created
-    def __init__(self, iterable, loop = False, index = 0):
-        self.index = index
+    def __init__(self, iterable, loop = False, start_index = 0):
+        self.index = start_index
         self.list = list(iterable)
         self.iter_through = False
         self.loop = loop    
        
-    # used when "next()" is applied
     def __next__(self):
 
         # either adds to the index or for loop index
@@ -85,9 +81,10 @@ class better_iter():
                 raise tripple_affirmative
 
     def __iter__(self):
+        # when for loops use this, iter_through prevents looping
         self.iter_through = True
 
-        # seperate index means that progress isn't lost in for loops
+        # separate index means that progress isn't lost in for loops
         self.iter_index = -1
         return self
 
@@ -124,5 +121,16 @@ class better_iter():
         # determines whether to return a float or int
         if float(val) % 1 == 0: return int(val) + other
         else: return float(val) + other
+
+    def __sub__(self, other):
+        val = self.list[self.index]
+
+        # determines whether to return a float or int
+        if float(val) % 1 == 0: return int(val) - other
+        else: return float(val) - other
+
+    def __getitem__(self, index): return self.list[index]
+
+    def __len__(self): return len(self.list)
 
 def previous(arg: better_iter): return arg.__previous__()
