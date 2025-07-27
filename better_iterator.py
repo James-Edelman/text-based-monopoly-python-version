@@ -28,7 +28,6 @@ class better_iter():
     note: str() returns current value,
     use repr() for viewing entire iter
 
-
     Created by James E. 2025 with help from GitHub Copilot
     """
 
