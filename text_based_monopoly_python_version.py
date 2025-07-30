@@ -27,14 +27,13 @@ player_turn = None
 # the players' icons can only appear in certain points, 
 # so this list will has the default and modified art for the board
 # the default space is blank but there are some special cases that are specified individually
-# (1st item = default art | 2nd item = modified art | 3rd item = standard/irregular display type...
-# ...4th-7th items if players 1-4 are on the current space | total numbers of players on the space)
-player_display_location = [["          ", "          ", "regular", False, False, False, False, 0] for i in range(41)]
+# (1st item = default art | 2nd item = modified art | 3rd item = standard/irregular display type)
+player_display_location = [["          ", "          ", True] for i in range(41)]
 
-player_display_location[7] = ["    ()    ", "    ()    ", "irregular", False, False, False, False, 0]
-player_display_location[22] = ["    / /   ", "    / /   ", "irregular", False, False, False, False, 0]
-player_display_location[36] = ["  \\_|    ", "  \\_|    ", "irregular", False, False, False, False, 0]
-player_display_location[40] = [" ║ ║ ║ ║ ", " ║ ║ ║ ║ ", "irregular", False, False, False, False, 0]
+player_display_location[7] = ["    ()    ", "    ()    ", False]
+player_display_location[22] = ["    / /   ", "    / /   ", False]
+player_display_location[36] = ["  \\_|    ", "  \\_|    ", False]
+player_display_location[40] = [" ║ ║ ║ ║ ", " ║ ║ ║ ║ ", False]
 
 property_data = [{} for i in range(28)]
 
@@ -201,173 +200,51 @@ def update_player_position(_pos: int, _action = "add"):
     updates the displayed segments where player is shown.
     action is either 'add' or 'remove', and the positions are 0-27
     """
-
     global player_display_location
 
-    # this is updating the display location by marking that a player is there, and the player's number (1, 2, 3, 4)
-    if _action == "add":
-        if dev_mode == True:
-            print("-----------------------")
-            print(f"this space will be modified: {player_display_location[_pos]} ║ pos = {_pos}")
-        player_display_location[_pos][player_turn + 2] = True
-        player_display_location[_pos][7] += 1
-        if dev_mode == True:
-            print(f"this space is modified to: {player_display_location[_pos]} ║ pos = {_pos}")
-            print("-----------------------")
+    player_itr = better_iter(range(players_playing), start_index=-1)
 
-    elif _action == "remove":
+    # records current player locations
+    players_pos = []
+    for item in player.items():
+        players_pos.append(item[1]["pos"])
 
-        if dev_mode == True:
-            print("-----------------------")
-            print(f"the previous space was modified from: {player_display_location[_pos]} ║ pos {_pos}")
+    # overrides player space with current space,
+    # to ensure player is displayed spaces before actual location
+    if _action == "add": players_pos[player_turn - 1] = _pos
 
-        # since if the player is going to jail they don't go on all the spaces on the way, this code is skipped
-        if player[player_turn]["pos"] != 40:
+    layout = {
+        "_":{1: "    p    ", 2: "  p  p  ", 3: " p p p ", 4: "p pp p"},
+        7:  {1: " p ()    ", 2: " p () p ", 3: "pp() p ", 4: "pp()pp"},
+        22: {1: " p / /   ", 2: " p / /p ", 3: "pp/ /p ", 4: "pp/ pp"},
+        36: {1: r"  \_| p ", 2: r"p\_| p ", 3: r"p\_|pp", 4: "ppp|p" },
+        40: {1: " ║ p║ ║ ",  2: " p║ ║p ",  3: " pp║p ",  4: "pp pp" }
+    }
 
-            player_display_location[_pos][7] -= 1
-            player_display_location[_pos][player_turn + 2] = False
+    # determines what layout to retrieve
+    if players_pos.count(_pos) == 0:
+        order = player_display_location[_pos][0]
+    elif player_display_location[_pos][2] == True:
+        order = layout["_"][players_pos.count(_pos)]
+    else:
+        order =layout[_pos][players_pos.count(_pos)]
 
+    string = ""
+
+    # assembles string
+    for char in order:
+        if char != "p":
+            string += char
         else:
-            player_display_location[player[player_turn]["last pos"]][7] -= 1
-            player_display_location[player[player_turn]["last pos"]][player_turn + 2] = False
-
-        if dev_mode == True:
-            print(f"the previous space was modified to: {player_display_location[_pos]} ║ pos {_pos}")
-            print("-----------------------")
-
-    player_itr = iter(player)
-
-    # this works by adding the surrounding spaces, and when receives a 'p' it adds the next player currently at the space
-    # it is dependent on the order not to overuse "next(player_itr)"
-    def update_displayed_art(order):
-        global player_display_location
-        
-        string = ""
-        x = 0
-
-        for char in order:
-            if char != "p":
-                string += char
-            else:
-                x = next(player_itr)
-                while player_display_location[_pos][x + 2] != True:
-                    x = next(player_itr)
-                string += player[x]["char"]
-        
-        player_display_location[_pos][1] = string
+            x = next(player_itr)
                 
+            # seeks the next player at that location
+            while players_pos[x] != _pos: x = next(player_itr)
 
-    if player_display_location[_pos][7] == 0:
-        player_display_location[_pos][1] = player_display_location[_pos][0]
-
-    #################### REGULAR SPACES ####################
-
-    # this is updating the displayed art with the player's icon
-    # all the regulars can be done in the same way so I'll start with specifying them first
-    elif player_display_location[_pos][2] == "regular":
-
-        # (layout for reference: |    💎    |)
-        if player_display_location[_pos][7] == 1:
-            update_displayed_art("    p    ")
-
-        # (layout for reference: |  💎  💎  |)
-        elif player_display_location[_pos][7] == 2:
-            update_displayed_art("  p  p  ")
-
-        # (layout for reference: | 💎 💎 💎 |)
-        elif player_display_location[_pos][7] == 3:
-            update_displayed_art(" p p p ")
-
-        # (layout for reference: |💎 💎💎 💎|)
-        elif player_display_location[_pos][7] == 4:
-            update_displayed_art("p pp p")
-
-    #################### IRREGULAR SPACES ####################
-
-    elif player_display_location[_pos][2] == "irregular":
-
-        ########## |    ()    | [chance @ space 7] ##########
-        if _pos == 7:
-
-            # (layout for reference: | 💎 ()    |)
-            if player_display_location[_pos][7] == 1:
-                update_displayed_art(" p ()    ")
-
-            # (layout for reference: | 💎 () 💎 |)
-            elif player_display_location[_pos][7] == 2:
-                update_displayed_art(" p () p ")
-
-            # (layout for reference: |💎💎() 💎 |)
-            elif player_display_location[_pos][7] == 3:
-                update_displayed_art("pp() p ")
-
-            # (layout for reference: |💎💎()💎💎|)
-            elif player_display_location[_pos][7] == 4:
-                update_displayed_art("pp()pp")
-
-        ########## |    / /   | [chance @ space 22] ##########
-
-        if _pos == 22:
-
-            # (layout for reference: | 💎 / /   |)
-            if player_display_location[_pos][7] == 1:
-                update_displayed_art(" p / /   ")
-
-            # (layout for reference: | 💎 / /💎 |)
-            elif player_display_location[_pos][7] == 2:
-                update_displayed_art(" p / /p ")
-
-            # (layout for reference: |💎💎/ /💎 |)
-            elif player_display_location[_pos][7] == 3:
-                update_displayed_art("pp/ /p ")
-
-            # (layout for reference: |💎💎/ 💎💎|)
-            elif player_display_location[_pos][7] == 4:
-                update_displayed_art("pp/ pp")
-
-        ########## |  \_|    | [chance @ space 36]
-
-        if _pos == 36:
-
-            # (layout for reference : |  \_| 💎 |)
-            if player_display_location[_pos][7] == 1:
-                update_displayed_art(r" \_| p p")
-
-            # (layout for reference : |💎\_| 💎 |)
-            elif player_display_location[_pos][7] == 2:
-                update_displayed_art(r"p\_| p ")
-
-            # (layout for reference : |💎\_|💎💎|)
-            elif player_display_location[_pos][7] == 3:
-                update_displayed_art(r"p\_|pp")
-                
-            # (layout for reference : |💎💎💎|💎|)
-            elif player_display_location[_pos][7] == 4:
-                update_displayed_art("ppp|p")
-
-        ########## | ║ ║ ║ ║ | [jail @ space 40 (in just visiting)] ##########
-        if _pos == 40:
-            player_display_location[_pos][1] = ""
-
-            # (layout for reference: | ║ 💎║ ║ |)
-            if player_display_location[_pos][7] == 1:
-               update_displayed_art(" ║ p║ ║ ")
-
-            # (layout for reference: | 💎║ ║💎 |)
-            elif player_display_location[_pos][7] == 2:
-                update_displayed_art(" p║ ║p |")
-
-            # (layout for reference: | 💎💎║💎 |)
-            elif player_display_location[_pos][7] == 3:
-                update_displayed_art(" pp║p ")
-
-            # (layout for reference: |💎💎 💎💎|)
-            elif player_display_location[_pos][7] == 4:
-                update_displayed_art("pp pp")
-
-    if dev_mode == True:
-        print(f"{player_display_location[_pos]}  ║  the function was: {_action}. the current player was: {player[player_turn]['char']}")
-
+            string += player[x + 1]["char"]
+        
+    player_display_location[_pos][1] = string
+ 
 
 class player_is_broke_class(parent_class):
     def __init__(self):
@@ -3255,11 +3132,6 @@ def new_game():
     global player_display_location
     global start_time
          
-    # updating the board so all players are on start
-    for i in range(players_playing):
-        player_display_location[0][i + 3] = True
-
-    player_display_location[0][7] = players_playing - 1
     update_player_position(0)
 
     start_time = time()
