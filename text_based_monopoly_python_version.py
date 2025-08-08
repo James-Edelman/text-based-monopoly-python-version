@@ -24,6 +24,8 @@ time_played = 0
 game_version = 0.9
 player_turn = None
 
+globals().update({"skibidi skibidi hawk tuah": 67}) # this variable serves no purpose
+
 # player icons can only appear in certain points here
 # default space is blank but some special cases specified individually
 player_display_location = [["          ", True] for i in range(41)]
@@ -75,7 +77,6 @@ prop_from_pos = {1:0, 3:1, 5:2, 6:3, 8:4, 9:5, 11:6, 12:7, 13:8, 14:9,
     28:20, 29:21, 31:22, 32:23, 34:24, 35:25, 37:26, 39:27
 }
 
-
 def sleep(_time: int):
     """delays thread for inputted milliseconds"""
     start = time()
@@ -94,8 +95,29 @@ def clear_screen(sys: str | None = name):
     else: raise Exception("bro what are you running this on??!!")
 
 
-# used for reseting variables
-class parent_class(): pass
+# used for reseting variables (see: refresh_board.input_mgmt > 's')
+class parent_class:
+    def disconnect_management(self, quitter):
+        """handles an online player leaving mid-game"""
+        if online_config.game_strt_event.is_set():
+            player[player_turn]["status"] = "disconnected"
+    def input_management(self, user_input):
+        """determines what action to perform with user input"""
+    
+    def __call__(self): pass 
+    def __init__(self): self.__name = None
+    def __eq__(self, value): return self.__name__ == value
+
+    @property
+    def __name__(self):
+        # if name does not exist, it is found through globals
+        if not self.__name:
+            for item in globals().items():
+                if id(item[1]) == id(self):
+                    self.__name = item[0]
+                    break
+                
+        return self.__name
 
 
 # I'm very proud of this use of typing hints
@@ -244,11 +266,6 @@ def update_player_position(_pos: int, _action = "add"):
  
 
 class player_is_broke_class(parent_class):
-    def __init__(self):
-
-        # a bit sketchy, this assumes the instance is class name without '_class'
-        self.__name__ = self.__class__.__name__[:-6]
-
     def __call__(self, _player: int, cause = None):
         """alerts the player that they are in debt/are bankrupt
         cause is passed on to bankruptcy if applicable. check requirements there"""
@@ -334,7 +351,6 @@ class player_is_broke_class(parent_class):
             self.bankruptcy_details = [_player, cause]
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         if self.action == "whump whump":
             
             # updates the player's status to "bankrupt" and removes them from play
@@ -349,7 +365,6 @@ class display_property_list_class(parent_class):
     def __init__(self):
         self.player = None
         self.allow_bankruptcy = False
-        self.__name__ = self.__class__.__name__[:-6]
         
     def __call__(self, _player, clear = True, allow_bankruptcy = False):
         global conversion_dictionary
@@ -488,7 +503,6 @@ class display_property_list_class(parent_class):
         print("\n    ", end="")
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         if user_input in ["b", "B"]:
 
             # checks that the player doesn't have negative cash,
@@ -567,8 +581,6 @@ class display_property_class(parent_class):
             ],
             True
         )
-
-        self.__name__ = self.__class__.__name__[:-6]
 
     def __call__(self, *_prop_num: int, bid = False):
         """
@@ -917,7 +929,7 @@ class display_property_class(parent_class):
             print("    └──────────────────────────────┘")
 
         if self.action_2 == "finished":
-            print(f"\n    === player {self.player_bids[0]["player"]} has won the bid, press [Enter] to continue ===\n\n    ", end = "")
+            print(f"\n    === player {self.player_bids[0]['player']} has won the bid, press [Enter] to continue ===\n\n    ", end = "")
 
         elif self.action == "auction" and self.player_bids.list[self.player_bid_turn] != 0:
             if self.action_2 == "final chance":
@@ -989,7 +1001,6 @@ class display_property_class(parent_class):
         print("\n    ", end = "")
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         global house_total
         global hotel_total
 
@@ -1691,7 +1702,6 @@ player_action = player_action_class()
 
 class homescreen_class(parent_class):
     def __init__(self):
-        self.__name__ = self.__class__.__name__[:-6]
         self.action = None
 
     def __call__(self):
@@ -1726,7 +1736,6 @@ class homescreen_class(parent_class):
         print("\n    ", end = "")
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         global dev_mode
         global current_screen
 
@@ -1777,7 +1786,6 @@ class online_config_class(parent_class):
     note: as a client, .joined_clients is [[name, name], [icon, icon], [ID, ID]]
     while as a host, [[name, socket, icon, ID], [name, socket, icon, ID]]"""
     def __init__(self):
-        self.__name__ = self.__class__.__name__[:-6]
         self.joined_clients = []
         self.action = None
         self.action_2 = None
@@ -1786,6 +1794,8 @@ class online_config_class(parent_class):
         self.socket_type = None
         self.stop_event = asyncio.Event()
         self.recv_users_event = asyncio.Event()
+        self.game_strt_event = asyncio.Event()
+        
         self.is_online = False # used for game logic differences
         self.player_num = None # ID for specific player
 
@@ -1990,7 +2000,7 @@ class online_config_class(parent_class):
                 return
 
             # clients sends version first thing
-            client_version = int(client.recv(1024).decode())
+            client_version = float(client.recv(1024).decode())
 
             # host sends confirmation that both on same version
             if client_version == game_version:
@@ -1998,6 +2008,7 @@ class online_config_class(parent_class):
             else:
                 client.sendall("False".encode())
                 continue
+
             # client sends name immediately after connection
             _, name, icon, num = client.recv(1024).decode().split(":")
 
@@ -2016,6 +2027,8 @@ class online_config_class(parent_class):
                 found_num = True
                 client.sendall("True".encode())
            
+            client.sendall(f"{chance.cards}:{community_chest.cards}")
+
             client.setblocking(False)
             self.joined_clients.append([name, client, icon, num])
 
@@ -2035,9 +2048,9 @@ class online_config_class(parent_class):
             self.host_wait_screen()
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         global player
         global player_turn
+        global players_playing
 
         if user_input == "DISPLAY CLIENTS":
             print(self.joined_clients)
@@ -2107,9 +2120,11 @@ class online_config_class(parent_class):
                 }
 
                 player_turn = 1
+                players_playing = len(self.joined_clients)
 
                 # ensures users can no longer be accepted
                 self.recv_users_event.set()
+                self.game_strt_event.set()
                 display_game_notice()
 
             elif user_input in ["k", "K"]:
@@ -2164,7 +2179,7 @@ class online_config_class(parent_class):
 
                 # protocol is for joined clients to ensure same version
                 self.socket.sendall(str(game_version).encode())
-                same_ver = self.socket.rev(1024).decode()
+                same_ver = self.socket.recv(1024).decode()
                 if same_ver != "True":
                     self.wrong_version_notice()
                     return
@@ -2186,6 +2201,11 @@ class online_config_class(parent_class):
                         self.socket.sendall(str(num).encode())
 
                 self.player_num = num
+                
+                # ensures chance cards are consistent across games
+                chance_order, cc_order = self.socket.recv(1024).decode().split(":")
+                chance.cards = eval(chance_order)
+                community_chest.cards = eval(cc_order)
 
                 # receives list of playing clients
                 _, client_list = self.socket.recv(1024).decode().split(":")
@@ -2218,6 +2238,9 @@ class online_config_class(parent_class):
 
         elif self.action == "connection lost accept":
             self.stop_event.set()
+            for var in globals():
+                if isinstance(var, parent_class):
+                    var.__init__()
             homescreen()
 
         elif self.action == "mode select":
@@ -2264,6 +2287,25 @@ class online_config_class(parent_class):
                 print("\n    === command not recognised ===\n\n    ", end="")
         else:
             print("\n    === command not recognised ===\n\n    ", end="")
+
+    def disconnect_management(self, quitter):
+        if self.socket_type == "client":
+
+            # removes the player from user's list of players
+            for client in online_config.joined_clients:
+                if quitter == client[2]:
+                    online_config.joined_clients.remove(client)
+                    break
+            self.client_wait_screen()
+
+        elif self.socket_type == "host":
+            
+            # removes the player from user's list of players
+            for client in online_config.joined_clients:
+                if quitter == client[3]:
+                    online_config.joined_clients.remove(client)
+                    break
+            self.host_wait_screen()
 
     async def shell(self):
         await asyncio.gather(online_config.get_users(), get_input(), get_data())
@@ -2346,7 +2388,6 @@ class trade_screen_class(parent_class):
         self.is_trade = False
         self.queued_prop = None
         self.curr_player = self.player_1
-        self.__name__ = self.__class__.__name__[:-6]
 
     def __call__(self, player_: int | None = player_turn, queued_prop: int | None = None):
         """
@@ -2583,7 +2624,6 @@ class trade_screen_class(parent_class):
         # hence player_1/2 isn't cleared yet)
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         if user_input in ["c", "C"]:
 
             # clears player offers
@@ -2728,11 +2768,9 @@ trade_screen = trade_screen_class()
 
 class refresh_board_class(parent_class):
     """displays the game board"""
-
     def __init__(self):
         self.money_structure = better_iter(["outer", "top_info", "bottom_info"], True)
         self.action = None
-        self.__name__ = self.__class__.__name__[:-6]
         self.passed_go_art = [
             r"✨    \¯\/¯/ /¯¯\  |¯||¯|    |¯¯¯\  /¯\   /¯⁐⁐| /¯⁐⁐| |¯¯¯| |¯¯¯\      /¯¯¯|   /¯¯\    ✨  ",
             r"   ✨  \  / | () | | || |    | ⁐_/ / ^ \  \__ \ \__ \ | ⁐|_ | [) |    | (⁐¯¯| | () | ✨     ",
@@ -2976,6 +3014,7 @@ class refresh_board_class(parent_class):
         
         if self.passed_go == True:
             for line in self.passed_go_art: print(f"    {line}")
+            print()
             self.passed_go = False
 
         print("    ", end="")
@@ -2984,7 +3023,6 @@ class refresh_board_class(parent_class):
             self.prev_cash[item[0] - 1] = item[1]["$$$"]
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         global dev_mode
         global player_turn
 
@@ -3022,8 +3060,12 @@ class refresh_board_class(parent_class):
 
         elif user_input in ["r", "R"]:
             if (player_movement.dice_rolled == False and self.action == None and 
-                player[player_turn]["status"] != "jail") or dev_mode != False:
-                if dev_mode != False: print("=== skipped with devmode ===")
+                    player[player_turn]["status"] != "jail") or dev_mode != False:
+                
+                # additional logic is required for online
+                if online_config.is_online and not (online_config.player_num == player_turn):
+                    print("\n   === it's not your turn ===\n\n    ", end="")
+
                 refresh_board()
                 player_movement.start_roll()
 
@@ -3084,6 +3126,8 @@ class refresh_board_class(parent_class):
                 "chance.index", "community_chest.cards_value", "community_chest.index"
             )
             self.action = "save notice"
+            self.prev_cash = [0, 0, 0, 0]
+            self.passed_go = False
             
             # forcibly resets all variables in case user 
             # starts new game without restarting program
@@ -3103,7 +3147,6 @@ class refresh_board_class(parent_class):
             for item in globals():
                 if isinstance(item, parent_class):
                     item.__init__()
-
 
             print("\n    === game saved. [Enter] to return to the main menu ===\n\n    ", end = "")
 
@@ -3325,9 +3368,6 @@ def new_game():
 
 
 class display_game_notice_class(parent_class):
-    def __init__(self):
-        self.__name__ = self.__class__.__name__[:-6]
-
     def __call__(self):
         global current_screen
         current_screen = self.__name__
@@ -3350,7 +3390,6 @@ class display_game_notice_class(parent_class):
         print("    the board is the length of this line, adjust until the line doesn't wrap around your screen.\n    ", end = "")
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         refresh_board()
 
 
@@ -3360,7 +3399,6 @@ display_game_notice = display_game_notice_class()
 class new_game_select_class(parent_class):
     def __init__(self):
         self.action = None
-        self.__name__ = self.__class__.__name__[:-6]
 
     def __call__(self):
         clear_screen()
@@ -3414,7 +3452,6 @@ class new_game_select_class(parent_class):
             print("    Player 4: ", end="")
 
     def input_management(self, user_input):
-        """determines what action to perform with user input"""
         global players_playing
         global player_turn
         global player
@@ -3537,7 +3574,8 @@ def save_game_to_file(*variables: str):
     # since only modified properties are saved, they have their own check
     for i in range(28):
         if property_data[i]["owner"] != None:
-            save_file.write(f"property_data[{i}] = {property_data[i]}\n")
+            save_file.write(f"property_data[{i}].update({{'owner': {property_data[i]['owner']},"
+                            f"'upgrade state': {property_data[i]['upgrade state']}}})\n")
 
     # the time is rounded to the nearest second
     save_file.write(f"time_played = {str(round(time() - start_time))}\n")
@@ -3844,6 +3882,9 @@ class player_movement_class(parent_class):
                     self.dice_rolling_state = "off"
                     if self.doubles_rolled in [0, 3]: self.dice_rolled = True
 
+                    if online_config.is_online == True:
+                        send_data("turnfinished")
+
                     # board isn't displayed if chance/community chest displays message
                     if not (refresh_board.action in ("chance notice", "community chest notice")): refresh_board()
 
@@ -3956,7 +3997,7 @@ player_movement = player_movement_class()
 
 
 def run():
-    """main entry point to start monopoly program."""
+    """main entry point to start monopoly program"""
     homescreen()
     while True:
         try: globals()[current_screen].input_management(input())
@@ -3972,8 +4013,11 @@ async def get_input():
 
 
 async def get_data():
+    """gets data sent from other players in an online game"""
     global player
     global player_turn
+    global players_playing
+
     loop = asyncio.get_running_loop()
 
     if online_config.socket_type == "host":
@@ -3988,25 +4032,28 @@ async def get_data():
                 except (ConnectionError, ConnectionAbortedError, ConnectionResetError, ConnectionRefusedError):
                     
                     # host alerts other clients that this client has lost communication
-                    online_config.joined_clients.remove(item)
                     for sub_item in online_config.joined_clients:
                         if sub_item != item:
                             sub_item[1].sendall(f"clientquit:{item[3]}".encode())
                     
-                    online_config.host_wait_screen()
+                    globals()[current_screen].disconnect_management(item[3])
 
                 # ensures all clients except sender receive message
                 for sub_item in online_config.joined_clients:
                     if sub_item != item:
-                        sub_item[1].sendall(f"{online_input}:{item[0]}:{item[2]}".encode())
+                        sub_item[1].sendall(f"{online_input}:{item[2]}".encode())
 
                 if online_input == "clientquit":
-                    input("RECV CLIENT QUIT")
+
+                    if online_config.game_strt_event.is_set():
+                        player
                     # removes the client from the host's list
                     online_config.joined_clients.remove(item)
 
                     # updates the host wait screen
                     online_config.host_wait_screen()
+                elif online_input == "turnfinshed":
+                    next(player_turn)
                 else:
                     input(f"{online_input=}")
       
@@ -4021,13 +4068,15 @@ async def get_data():
                 if online_config.stop_event.is_set():
                     return
 
-            except (ConnectionAbortedError, ConnectionResetError, OSError, ConnectionError, ConnectionRefusedError):
+            except (ConnectionAbortedError, ConnectionResetError, ConnectionError, ConnectionRefusedError):
                 online_config.connection_lost()
                 
                 # stops asynchronous actions
                 online_config.stop_event.set()
                 online_config.is_online = False
 
+                return
+            except OSError:
                 return
 
             # malformed messages are ignored
@@ -4054,18 +4103,11 @@ async def get_data():
 
             elif online_input.startswith("clientquit:"):
                 _, quitter = online_input.split(":")
-                
-                # removes the player from user's list of players
-                for client in online_config.joined_clients:
-                    if quitter == client[2]:
-                        online_config.joined_clients.remove(client)
-                online_config.client_wait_screen()
 
-            elif online_input.startswith("clientjoin:"):
-                _, name, icon = online_input.split(":")
-                online_config.joined_clients[0].append(name)
-                online_config.joined_clients[1].append(icon)
-                online_config.client_wait_screen()
+                if online_config.game_strt_event.is_set():
+                    player[quitter]["status"] = "DISCONNECTED"
+
+                globals()[current_screen].disconnect_management(quitter)
 
             elif online_input == "hoststart":
                 player = {}
@@ -4087,28 +4129,31 @@ async def get_data():
                 }
 
                 player_turn = 1
+                online_config.game_strt_event.set()
                 display_game_notice()
+                players_playing = len(online_config.joined_clients[0])
 
-            elif online_input.startswith("arbitrarycode"):
-               
-                # fun!
-                code = online_input.removeprefix("arbitrarycode:")
-                exec(code, globals())
-
+            elif online_input.startswith("turnfinished:"):
+                next(player_turn)
+                if current_screen == "refresh_board":
+                    refresh_board()
+                else:
+                    print("\n    === it's now your turn to roll ===\n\n    ", end="")
             else:
                 # I know this is blocking, but it should ensure
                 # that logic errors are visible for debugging
                 input(f"{online_input=}")
+    await asyncio.sleep(1)
 
 
 async def send_data(data: str):
     """sends the message to correct socket. handles hosts and clients"""
     if online_config.socket_type == "host":
         for item in online_config.joined_clients:
-            item[1].sendall(data.encode())
+            item[1].sendall(f"{data}:{online_config.player_num}".encode())
 
     elif online_config.socket_type == "client":
-        online_config.socket.sendall(data.encode())
+        online_config.socket.sendall(f"{data}:{online_config.player_num}".encode())
 
 # perhaps I should start all others with trailing 
 # underscores so this is the only accessible function
