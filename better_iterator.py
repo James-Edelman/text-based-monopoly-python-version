@@ -7,8 +7,7 @@ class tripple_affirmative(IndexError):
         And when the systems broke down an erroneous signal was sent."'''
     def __init__(
             self, 
-            msg = '''
-            iterator index out of range.
+            msg = '''iterator index out of range.
             
             "Some said she never had a solution, she just died.
             And when the systems broke down an erroneous signal was sent."'''

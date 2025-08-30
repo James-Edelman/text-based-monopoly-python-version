@@ -95,31 +95,6 @@ def clear_screen(sys: str | None = name):
     else: raise Exception("bro what are you running this on??!!")
 
 
-# used for reseting variables (see: refresh_board.input_mgmt > 's')
-class parent_class:
-    def disconnect_management(self, quitter):
-        """handles an online player leaving mid-game"""
-        if online_config.game_strt_event.is_set():
-            player[player_turn]["status"] = "disconnected"
-    def input_management(self, user_input):
-        """determines what action to perform with user input"""
-    
-    def __call__(self): pass 
-    def __init__(self): self.__name = None
-    def __eq__(self, value): return self.__name__ == value
-
-    @property
-    def __name__(self):
-        # if name does not exist, it is found through globals
-        if not self.__name:
-            for item in globals().items():
-                if id(item[1]) == id(self):
-                    self.__name = item[0]
-                    break
-                
-        return self.__name
-
-
 # I'm very proud of this use of typing hints
 def create_button_prompts(
         prompts: list[str],
@@ -144,7 +119,8 @@ def create_button_prompts(
     extra_space = ["", ""]
     num = len(prompts)
 
-    # if "prompt_state" or "spacing" is left to default, its size is dependent on the amount of prompts
+    # if "prompt_state" or "spacing" is left to default,
+    # its size is dependent on the amount of prompts
     if prompt_state == "default":
         prompt_state = []
         for i in range(num):
@@ -235,10 +211,10 @@ def update_player_position(_pos: int, _action = "add"):
 
     layout = {
         "_":{0: "          ", 1: "    p    ", 2: "  p  p  ", 3: " p p p ", 4: "p pp p"},
-        7:  {0: "    ()    ", 1: " p ()    ", 2: " p () p ", 3: "pp() p ", 4: "pp()pp"},
+        7 : {0: "    ()    ", 1: " p ()    ", 2: " p () p ", 3: "pp() p ", 4: "pp()pp"},
         22: {0: "    / /   ", 1: " p / /   ", 2: " p / /p ", 3: "pp/ /p ", 4: "pp/ pp"},
         36: {0: "  \\_|    ", 1: r"  \_| p ", 2: r"p\_| p ", 3: r"p\_|pp", 4: "ppp|p" },
-        40: {0: " ║ ║ ║ ║ ", 1: " ║ p║ ║ ",  2: " p║ ║p ",  3: " pp║p ",  4: "pp pp" }
+        40: {0: " ║ ║ ║ ║ " , 1: " ║ p║ ║ " , 2: " p║ ║p " , 3: " pp║p " , 4: "pp pp" }
     }
 
     # determines what layout to retrieve
@@ -264,6 +240,62 @@ def update_player_position(_pos: int, _action = "add"):
     # updates display
     player_display_location[_pos][0] = string
  
+
+type decorator = function
+def coro_protection(coro) -> decorator:
+    """decorator. suppresses CancelledError once coroutine canceled"""
+    async def sub(*args, **kwards):
+        try:
+            await coro(*args, **kwards)
+        except asyncio.CancelledError:
+            return
+        except exit_async:
+            online_config.quit_async()
+
+    sub.__name__ = coro.__name__
+    return sub
+
+
+class exit_async(BaseException):
+    """raise to start canceling asynchronous functions"""
+    pass
+
+
+# used for reseting variables (see: refresh_board.input_mgmt > 's')
+class parent_class:
+    def disconnect_management(self, quitter):
+        """handles an online player leaving mid-game"""
+        if online_config.game_strt_event.is_set():
+            bankruptcy(quitter, "disconnect")
+            if online_config.socket_type != "host":
+                return
+            
+            for item in online_config.joined_clients:
+                if item[3] == quitter:
+                    _return = item[1]
+                    online_config.joined_clients.remove(item)
+
+    def input_management(self, user_input):
+        """determines what action to perform with user input"""
+    
+    def online_management(self, command):
+        """executes relevant logic for an online command"""
+
+    def __call__(self): pass 
+    def __init_subclass__(self): self.__name = None
+    def __eq__(self, value): return self.__name__ == value
+
+    @property
+    def __name__(self):
+        # if name does not exist, it is found through globals
+        if not self.__name:
+            for item in globals().items():
+                if id(item[1]) == id(self):
+                    self.__name = item[0]
+                    break
+                
+        return self.__name
+
 
 class player_is_broke_class(parent_class):
     def __call__(self, _player: int, cause = None):
@@ -603,13 +635,13 @@ class display_property_class(parent_class):
                 self.player_bid_turn = player_turn.copy()
 
                 # ensures that only playing players can play
-                while player[self.player_bid_turn]["status"] == "bankrupt":
+                while player[self.player_bid_turn]["status"] in ("bankrupt", "disconnected"):
                     next(self.player_bid_turn)
 
                 # checks how many players are participating
                 self.players_bidding = 0
                 for _player in player.items():
-                    if _player[1]["status"] == "playing":
+                    if _player[1]["status"] not in ("bankrupt", "disconnected"):
                         self.players_bidding += 1
 
         if len(_prop_num) > 1:
@@ -1268,39 +1300,34 @@ class chance_cards_class(parent_class):
 
         # note: the numbers at the start are for saving the arrangement of the shuffled cards
         self.cards = [
-                      "0 Advance to go (collect $200)",
-                      "1 Advance to Trafalgar Square. If you pass go, collect $200",
-                      "2 Advance to Pall Mall. If you pass go, collect $200",
-                      "3 Advance to the nearest utility. If unowned, you may buy it from the bank. If owned, throw the dice and pay owner 10x dice roll",
-                      "4 Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise entitled",
-                      "4 Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise entitled",
-                      "5 Bank pays you dividend of $50",
-                      "6 Get out of jail free. This card may be kept until needed or traded",
-                      "7 Go back three spaces",
-                      "8 Go directly to jail. Do not pass go, do not collect $200",
-                      "9 Make general repairs on all your property: For each house pay $25, for each hotel pay 100",
-                      "10Take a trip to Kings Cross Station. If you pass go, collect $200.",
-                      "11Advance to Mayfair",
-                      "12You have been elected chairman of the board. Pay each player $50",
-                      "13Your building loan matures. Collect $150",
-                      "14Speeding fine $15",
+                      "Advance to go (collect $200)",
+                      "Advance to Trafalgar Square. If you pass go, collect $200",
+                      "Advance to Pall Mall. If you pass go, collect $200",
+                      "Advance to the nearest utility. If unowned, you may buy it from the bank. If owned, throw the dice and pay owner 10x dice roll",
+                      "Advance to the nearest station. If unowned, you may buy it from the bank. If owned, pay owner twice the rental to which they are otherwise entitled",
+                      "Bank pays you dividend of $50",
+                      "Get out of jail free. This card may be kept until needed or traded",
+                      "Go back three spaces",
+                      "Go directly to jail. Do not pass go, do not collect $200",
+                      "Make general repairs on all your property: For each house pay $25, for each hotel pay 100",
+                      "Take a trip to Kings Cross Station. If you pass go, collect $200.",
+                      "Advance to Mayfair",
+                      "You have been elected chairman of the board. Pay each player $50",
+                      "Your building loan matures. Collect $150",
+                      "Speeding fine $15",
         ]
         self.art = [
                     r"✨     /¯¯¯| |¯| |¯|   /¯\   |¯¯\|¯|  /¯¯¯| |¯¯¯|   ✨  ",
                     r"   ✨ | (⁐⁐  | ¯¯¯ |  / ^ \  | \ \ | | (⁐⁐  | ⁐|_ ✨    ",
                     r" ✨    \___| |_|¯|_| /_/¯\_\ |_|\__|  \___| |___|     ✨",
 ]
-        shuffle(self.cards)
 
-        self.cards_value = []
-        self.cards_message = []
-
-        for i in self.cards: self.cards_value.append(i[:2])
-        for i in self.cards: self.cards_message.append(i[2:])
+        self.values = [0, 1, 2, 3, 4, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        shuffle(self.values)
         self.index = -1
 
     def __str__(self):
-        return self.cards_message[self.index]
+        return self.cards[self.values[self.index]]
 
     def draw_card(self):
         """returns the next shuffled card message"""
@@ -1308,10 +1335,10 @@ class chance_cards_class(parent_class):
         # this draws the next chance card, if exceeded resets to zero
         self.index += 1
         try:
-            return self.cards_message[self.index]
+            return self.cards[self.values[self.index]]
         except IndexError:
             self.index = 0
-            return self.cards_message[self.index]
+            return self.cards[self.values[self.index]]
 
     def perform_action(self):
         """
@@ -1321,7 +1348,7 @@ class chance_cards_class(parent_class):
 
         global player
 
-        drawn_card = int(self.cards_value[self.index])
+        drawn_card = self.values[self.index]
 
         if drawn_card == 0:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
@@ -1451,40 +1478,35 @@ class community_chest_cards_class(parent_class):
 
     def __init__(self):
         self.cards = [
-                     "0 Advance to go (collect $200)",
-                     "1 Bank error in your favour. Collect $200",
-                     "2 Doctor's fees. Pay $50",
-                     "3 From sale of stock you get $50",
-                     "4 Get out of jail free. This card may be kept until needed or traded",
-                     "5 Go directly to jail. Do not pass go, do not collect $200",
-                     "6 Holiday fund matures. Collect $100",
-                     "7 Income tax refund. Collect $20",
-                     "8 It's your birthday. Collect $10 from every player",
-                     "9 Life insurance matures. Collect $100",
-                     "10Hospital fees. Pay $100",
-                     "11You have won second prise in a beauty contest. Collect $10",
-                     "12You are assessed for street repairs: Pay $40 per house and $115 per hotel you own",
-                     "13School fees. Pay $50",
-                     "14Receive $25 consultancy fee.",
-                     "15You inherit $100",
+                     "Advance to go (collect $200)",
+                     "Bank error in your favour. Collect $200",
+                     "Doctor's fees. Pay $50",
+                     "From sale of stock you get $50",
+                     "Get out of jail free. This card may be kept until needed or traded",
+                     "Go directly to jail. Do not pass go, do not collect $200",
+                     "Holiday fund matures. Collect $100",
+                     "Income tax refund. Collect $20",
+                     "It's your birthday. Collect $10 from every player",
+                     "Life insurance matures. Collect $100",
+                     "Hospital fees. Pay $100",
+                     "You have won second prise in a beauty contest. Collect $10",
+                     "You are assessed for street repairs: Pay $40 per house and $115 per hotel you own",
+                     "School fees. Pay $50",
+                     "Receive $25 consultancy fee.",
+                     "You inherit $100",
 ]
-
         self.art = [
                     r"✨     /¯¯¯|  /¯¯\  |¯¯\/¯¯| |¯¯\/¯¯| |¯||¯| |¯¯\|¯| |¯¯¯| |¯¯¯¯¯| \¯\/¯/    /¯¯¯| |¯| |¯| |¯¯¯| /¯⁐⁐| |¯¯¯¯¯|   ✨  ",
                     r"   ✨ | (⁐⁐  | () | | \  / | | \  / | | || | | \ \ | _| |_  ¯| |¯   \  /    | (⁐⁐  | ¯¯¯ | | ⁐|_ \__ \  ¯| |¯  ✨    ",
                     r" ✨    \___|  \__/  |_|\/|_| |_|\/|_|  \__/  |_|\__| |___|   |_|    /_/      \___| |_|¯|_| |___| |___/   |_|       ✨",
 ]
-        shuffle(self.cards)
 
-        self.cards_value = []
-        self.cards_message = []
-
-        for i in self.cards: self.cards_value.append(i[:2])
-        for i in self.cards: self.cards_message.append(i[2:])
-        self.index = 0
+        self.index = -1
+        self.values = list(range(0, 16))
+        shuffle(self.values)
 
     def __str__(self):
-        return self.cards_message[self.index]
+        return self.cards[self.values[self.index]]
 
     def draw_card(self):
         """returns the next shuffled card message"""
@@ -1492,10 +1514,9 @@ class community_chest_cards_class(parent_class):
         # this draws the next chance card, if exceeded resets to zero
         self.index += 1
         try:
-            return self.cards_message[self.index]
+            return self.cards[self.values[self.index]]
         except IndexError:
             self.index = 0
-            return self.cards_message[self.index]
 
     def perform_action(self):
         """
@@ -1505,7 +1526,7 @@ class community_chest_cards_class(parent_class):
 
         global player
 
-        drawn_card = int(self.cards_value[self.index])
+        drawn_card = int(self.values[self.index])
 
         if drawn_card == 0:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
@@ -1584,121 +1605,6 @@ class community_chest_cards_class(parent_class):
 
 community_chest = community_chest_cards_class()
 
-
-class player_action_class(parent_class):
-    """allows the player to interact with the board"""
-    def __call__(self, _player: int):
-        """updates actions based on given player's position"""
-
-        # chance + C.C card actions
-        if player[_player]["pos"] in [7, 22, 36]:
-            refresh_board.action = "chance notice"
-
-            print(chance.art[0])
-            print(f"    {chance.art[1]}")
-            print(f"    {chance.art[2]}")
-            print()
-            print(f"    === {chance.draw_card()} ===\n\n    ", end="")
-
-        elif player[_player]["pos"] in [2, 17, 33]:
-            refresh_board.action = "community chest notice"
-
-            # cannot be looped through as extra space is only added to last two lines
-            print(community_chest.art[0])
-            print(f"    {community_chest.art[1]}")
-            print(f"    {community_chest.art[2]}")
-            print()
-            print(f"    === {community_chest.draw_card()} ===\n\n    ", end="")
-
-        # income & super tax
-        elif player[_player]["pos"] == 4:
-            player[player_turn]["$$$"] -= 200
-
-        elif player[_player]["pos"] == 38:
-            player[player_turn]["$$$"] -= 100
-
-        # go to jail space
-        elif player[_player]["pos"] == 30:
-            player[player_turn]["last pos"] = player[player_turn]["pos"]
-            player[player_turn]["pos"] = 40
-            player[player_turn]["status"] = "jail"
-            update_player_position(40)
-            update_player_position(player[player_turn]["last pos"], "remove")
-
-        # properties
-        elif player[_player]["pos"] not in [0, 10, 20, 40]:
-            self.rent_mgmt(_player)
-
-    def rent_mgmt(
-            self, _player: int, 
-            rent_multi: int | None = 1,
-            rent_fixed: int | None = None):
-        """
-        determines rent owed, or if the property can be bought.
-        rent_fixed is applied equally to upgraded properties 
-        (except mortgaged), and is applied alongside rent_multi.
-        rent_multi overrides utility multiplier
-        """
-
-        _prop = prop_from_pos[player[_player]["pos"]]
-        _owner = property_data[_prop]["owner"]
-        if _owner == None:
-            refresh_board.action = "property"
-            return
-
-        elif property_data[_prop]["upgrade state"] == -1:
-            return
-
-        elif rent_fixed != None:
-            player[_player]["$$$"] -= rent_fixed * rent_multi
-            player[_owner]["$$$"] += rent_fixed * rent_multi
-                 
-        elif property_data[_prop]["type"] == "utility":
-
-            # if the player ownes both utilities (rent = 10x dice roll)
-            if property_data[7]["owner"] == _owner and property_data[10]["owner"] == _owner:
-                    
-                # if the multiplier is default (1), it is changed to 10
-                if rent_multi == 1: rent_multi = 10
-                player[_player]["$$$"] -= (player_movement.dice_value[1] + player_movement.dice_value[2]) * rent_multi
-                player[_owner]["$$$"] += (player_movement.dice_value[1] + player_movement.dice_value[2]) * rent_multi
-            else:
-                if rent_multi == 1: rent_multi = 10
-                player[_player]["$$$"] -= (player_movement.dice_value[1] + player_movement.dice_value[2]) * rent_multi
-                player[_owner]["$$$"] += (player_movement.dice_value[1] + player_movement.dice_value[2]) * rent_multi
-
-        elif property_data[_prop]["type"] == "station":
-
-            # counts how many stations owned to determine rent
-            num = 0
-            for i in [2, 10, 17, 25]:
-                if property_data[i]["owner"] == _owner: num += 1
-            player[_player]["$$$"] -= station_rent[num] * rent_multi
-            player[_owner]["$$$"] += station_rent[num] * rent_multi
-                
-        # properties with houses or hotels
-        elif property_data[_prop]["upgrade state"] > 2:
-
-            # eg: if upgrade_state = 3; key would be "h1"
-            key = f"h{property_data[_prop]['upgrade state'] - 2}"
-            player[_player]["$$$"] -= property_data[_prop][key] * rent_multi
-            player[_owner]["$$$"] += property_data[_prop][key] * rent_multi
-
-        # properties in a colour set
-        elif property_data[_prop]["upgrade state"] == 2:
-            player[_player]["$$$"] -= property_data[_prop]["rent"] * 2 * rent_multi
-            player[_owner]["$$$"] += property_data[_prop]["rent"] * 2 * rent_multi
-
-        elif property_data[_prop]["upgrade state"] == 1:
-            player[_player]["$$$"] -= property_data[_prop]["rent"] * rent_multi
-            player[_owner]["$$$"] += property_data[_prop]["rent"] * rent_multi
-
-        if player[_player]["$$$"] < 0:
-            player_is_broke(_player, _owner)
-
-
-player_action = player_action_class()
-                
 
 class homescreen_class(parent_class):
     def __init__(self):
@@ -1783,8 +1689,14 @@ homescreen = homescreen_class()
 class online_config_class(parent_class):
     """contains the menus and sockets for starting an online game
 
-    note: as a client, .joined_clients is [[name, name], [icon, icon], [ID, ID]]
-    while as a host, [[name, socket, icon, ID], [name, socket, icon, ID]]"""
+    as a client, .joined_clients is [[name, name], [icon, icon], [ID, ID]]
+    while as a host, [[name, socket, icon, ID], [name, socket, icon, ID]]
+    
+    .game_strt_event is set once the host starts the game.
+    .player_num corresponds to a player key in `player`
+    .running_tasks contains all asynchronous tasks created in self.shell()
+    .ping count is an int as client, or list[int] as an host.
+    """    
     def __init__(self):
         self.joined_clients = []
         self.action = None
@@ -1793,11 +1705,13 @@ class online_config_class(parent_class):
         self.display_icon = ""
         self.socket_type = None
         self.stop_event = asyncio.Event()
-        self.recv_users_event = asyncio.Event()
         self.game_strt_event = asyncio.Event()
+        self.running_tasks = []
         
-        self.is_online = False # used for game logic differences
         self.player_num = None # ID for specific player
+
+        self.ping_count = 0
+        self.max_pings_threshold = 3
 
         # creates a new socket for connection
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1815,7 +1729,6 @@ class online_config_class(parent_class):
         clear_screen()
 
         self.action = "mode select"
-        self.is_online = True
 
         print()
         for line in create_button_prompts(["Host", "Join", "Back"], spacing=[4, 3, 6]):
@@ -1830,10 +1743,6 @@ class online_config_class(parent_class):
         current_screen = self.__name__
         self.action = "connection lost accept"
 
-        # closes and re-creates the socket
-        self.socket.close()
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
         clear_screen()
         print()
         print("    ╔════════════════════════════════════════════════════════════════╗")
@@ -1846,6 +1755,7 @@ class online_config_class(parent_class):
         print("    ║                                                                ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print("\n    ", end="")
+        self.quit_async()
 
     def kicked_notice(self):
         """alerts the user that they were removed by the host
@@ -1854,10 +1764,6 @@ class online_config_class(parent_class):
         global current_screen
         current_screen = self.__name__
         self.action = "connection lost accept"
-
-        # closes and re-creates the socket
-        self.socket.close()
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         clear_screen()
         print()
@@ -1872,16 +1778,13 @@ class online_config_class(parent_class):
         print("    ║                                                                ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print("\n    ", end="")
+        self.quit_async()
 
     def wrong_version_notice(self):
         """alerts the user that they are not playing on the same version as host"""
         global current_screen
         current_screen = self.__name__
         self.action = "connection lost accept"
-
-        # closes and re-creates the socket
-        self.socket.close()
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         # ahhhhrgh I had to make this a bit wider to fit the link,
         # hopefully no-one will notice
@@ -1949,7 +1852,6 @@ class online_config_class(parent_class):
         global current_screen
         current_screen = self.__name__
         self.action = "client wait screen"
-        self.action_2 = "enter details"
 
         clear_screen()
         print()
@@ -1957,15 +1859,18 @@ class online_config_class(parent_class):
         print("    ║                                                                ║")
         print("    ║                            PLAYERS:                            ║")
         print("    ║                                                                ║")
+        
         lock = False
-        for item in self.joined_clients[0]:
-            name = item
-            
+        for _id in self.joined_clients[2]:
+            # gets the index in the ID sublist and access value in name sublist
+            name = self.joined_clients[0][self.joined_clients[2].index(_id)]
+
             # the first name is always the host
             if not lock:
                 name += " (host)"
                 lock = True
-            if name == self.display_name:
+
+            if self.player_num == int(_id):
                 name += " (you)"
 
             extra_space = ""
@@ -1983,20 +1888,42 @@ class online_config_class(parent_class):
             print(line)
         print()
         print("    ", end="")
-
+    
+    @coro_protection
     async def get_users(self):
         """allows the host to receive users. Handles connection protocol"""
         if self.socket_type != "host": return
-
         loop = asyncio.get_running_loop()
-        while not self.stop_event.is_set() and not self.recv_users_event.is_set():
-            
+
+        @coro_protection
+        async def check():
+            # users aren't accepted once game starts
+            await self.game_strt_event.wait()
+            accept_tsk.cancel()
+
+        async def accept(target: asyncio.Task):
             # gets a client
             try:
                 client, _ = await loop.run_in_executor(None, self.socket.accept) # port is discarded
             
-            # this would occur if the other coroutine closes the socket    
+            # if the other coroutine closes the socket    
             except OSError:
+                return None
+
+            else: # ensures the check doesn't block either.
+                target.cancel()
+                return client
+
+        while not self.stop_event.is_set() or not self.game_strt_event.is_set():
+            check_tsk = asyncio.Task(check())
+            accept_tsk = asyncio.Task(accept(check_tsk))
+
+            try:
+                client, _ = await asyncio.gather(accept_tsk, check_tsk)
+            except asyncio.CancelledError:
+                return
+
+            if client == None:
                 return
 
             # clients sends version first thing
@@ -2027,7 +1954,7 @@ class online_config_class(parent_class):
                 found_num = True
                 client.sendall("True".encode())
            
-            client.sendall(f"{chance.cards}:{community_chest.cards}")
+            client.sendall(f"{chance.values}:{community_chest.values}".encode())
 
             client.setblocking(False)
             self.joined_clients.append([name, client, icon, num])
@@ -2051,11 +1978,21 @@ class online_config_class(parent_class):
         global player
         global player_turn
         global players_playing
-
+        
         if user_input == "DISPLAY CLIENTS":
             print(self.joined_clients)
+        elif user_input.startswith("DISPLAY VAR"):
+            _, var = user_input.split(":")
+            try:
+                print(eval(var))
+            except NameError:
+                pass
 
         elif self.action == "name 1":
+            user_input = user_input.strip()
+            if not user_input:
+                print("    === please enter a name ===\n\n    ", end="")
+                return
 
             # gets display name then player icon (see below)
             self.display_name = user_input
@@ -2093,20 +2030,33 @@ class online_config_class(parent_class):
                         item[1].sendall(b"booted")
                         item[1].close()
                         self.joined_clients.remove(item)
-
+                        break
+                else:
+                    print("\x1b[u\x1b[0K=== enter player name ([C]ancel): ", end="", flush=True)
+                    return
+                 
                 print("\x1b[u\x1b[0K", end="", flush=True)
                 self.host_wait_screen()
 
+            elif self.action_2 == "accept notice":
+                pass
+
             elif user_input in ["s", "S"]:
+                if len(self.joined_clients) == 0:
+                    print("\x1b[u\x1b[0K=== You need at least 2 players to start. [Enter] ===", end="", flush=True)
+                    return
+
+                send_data("hoststart")
                 player = {}
 
+                icons = [self.display_icon]
                 for item in self.joined_clients:
-                    item[1].sendall("hoststart".encode())
+                    icons.append(item[2])
 
                 # creates the players using the characters provided
-                for i in range(len(online_config.joined_clients)):
+                for i in range(len(online_config.joined_clients) + 1):
                     player[i + 1] = {
-                    "char": online_config.joined_clients[i][2],
+                    "char": icons[i],
                     "$$$": 1500,
                     "pos": 0,
                     "last pos": 0,
@@ -2119,11 +2069,11 @@ class online_config_class(parent_class):
                     "version": game_version
                 }
 
-                player_turn = 1
-                players_playing = len(self.joined_clients)
+                players_playing = len(self.joined_clients) + 1 # accounts for host
+                player_turn = better_iter(range(1, players_playing + 1), True)
+                update_player_position(0)
 
-                # ensures users can no longer be accepted
-                self.recv_users_event.set()
+                # ensures users aren't accepted and logic functions properly
                 self.game_strt_event.set()
                 display_game_notice()
 
@@ -2142,13 +2092,9 @@ class online_config_class(parent_class):
                 self.stop_event.set()
 
                 # ensures other coroutine won't be permanently waiting for another connection
-                self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
-
-                # recreates the socket for next use
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 
-                self.mode_select()
+                self.quit_async()
             
             else:
                 print("\x1b[u\x1b[0K", end="", flush=True)
@@ -2179,7 +2125,9 @@ class online_config_class(parent_class):
 
                 # protocol is for joined clients to ensure same version
                 self.socket.sendall(str(game_version).encode())
+
                 same_ver = self.socket.recv(1024).decode()
+
                 if same_ver != "True":
                     self.wrong_version_notice()
                     return
@@ -2204,44 +2152,35 @@ class online_config_class(parent_class):
                 
                 # ensures chance cards are consistent across games
                 chance_order, cc_order = self.socket.recv(1024).decode().split(":")
-                chance.cards = eval(chance_order)
-                community_chest.cards = eval(cc_order)
+                chance.values = eval(chance_order)
+                community_chest.values = eval(cc_order)
 
                 # receives list of playing clients
                 _, client_list = self.socket.recv(1024).decode().split(":")
                 online_config.joined_clients = eval(client_list)
 
-                print(f"\n    === connected to {self.joined_clients[0][0]}'s game. waiting for host start ===\n\n    ", end="")
- 
                 # ensures that client screen commands are accessible
                 self.action_2 = None
 
                 self.client_wait_screen()
-                asyncio.run(self.shell())
+                print(f"\n    === connected to {self.joined_clients[0][0]}'s game. waiting for host start ===\n\n    ", end="")
+
+                try:
+                    asyncio.run(self.shell())
+                except:
+                    pass
+                print("    ", end = "")
+                quit()
 
             elif user_input in ["b", "B"]:
-                self.socket.sendall("clientquit".encode())
-
-                # quits the asyncio.gather()
-                self.stop_event.set()
+                send_data("clientquit")
 
                 # ensures other coroutine won't be permanently waiting for another connection
-                self.socket.setblocking(False)
                 self.socket.close()
+                self.quit_async()
 
-                # recreates the socket for next use
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                
-                self.mode_select()
             else:
                 print("\n    === command not recognised ===\n\n    ", end="")
-
-        elif self.action == "connection lost accept":
-            self.stop_event.set()
-            for var in globals():
-                if isinstance(var, parent_class):
-                    var.__init__()
-            homescreen()
 
         elif self.action == "mode select":
             if user_input in ["h", "H"]:
@@ -2266,21 +2205,30 @@ class online_config_class(parent_class):
                         unbound = False
 
                 self.socket.listen()
+                self.ping_count = []
                 self.host_wait_screen(f"{self.U_IP_V4}-{self.port}")
-                asyncio.run(self.shell())
+                
+                try:
+                    asyncio.run(self.shell())
+                except:
+                    pass
+                print("    ", end = "")
+                quit()
             
             elif user_input in ["j", "J"]:
                 self.socket_type = "client"
 
                 # clients use the joined_clients list differently
                 # contains names and icons, but not the sockets
-                self.joined_clients = [[],[]]
+                self.joined_clients = [[],[], []]
 
+                self.ping_count = 0
                 self.client_wait_screen()
+                self.action_2 = "enter details"
                 print("enter connection details: ", end = "")
 
             elif user_input in ["b", "B"]:
-                self.is_online = False
+                self.game_strt_event.clear()
                 homescreen()
 
             else:
@@ -2299,7 +2247,6 @@ class online_config_class(parent_class):
             self.client_wait_screen()
 
         elif self.socket_type == "host":
-            
             # removes the player from user's list of players
             for client in online_config.joined_clients:
                 if quitter == client[3]:
@@ -2307,8 +2254,53 @@ class online_config_class(parent_class):
                     break
             self.host_wait_screen()
 
+    def quit_async(self):
+        """quits all asynchronous tasks"""
+        self.stop_event.set()
+        self.gather.cancel()
+        if self.socket_type == "client":
+            self.socket.close()
+        else:
+            for item in self.joined_clients:
+                item[1].close()
+
+        for task in online_config.running_tasks:
+            task.cancel()
+        #quit()
+        #asyncio.get_running_loop().close()
+
+    @coro_protection
+    async def ping(self):
+        """pings the other socket every four seconds"""
+        while not self.stop_event.is_set():
+            send_data("ping")
+            await asyncio.sleep(3)
+
+            # client only has host connection
+            if self.socket_type == "client":
+                self.ping_count += 1
+                if self.ping_count > self.max_pings_threshold:
+                    globals()[current_screen].disconnect_management(1) # host is always ID 1
+            else:
+                # increments count for all clients
+                self.ping_count = [i + 1 for i in self.ping_count]
+                for count in self.ping_count:
+                    if count > self.max_pings_threshold:
+                        globals()[current_screen].disconnect_management(self.ping_count.index(count))
+    
     async def shell(self):
-        await asyncio.gather(online_config.get_users(), get_input(), get_data())
+        """main entry point for asynchronous functions"""
+        if dev_mode:
+            asyncio.get_running_loop().set_debug(True)
+
+        self.running_tasks = [asyncio.Task(get_input()), asyncio.Task(get_data()), asyncio.Task(self.get_users())]
+        self.gather = asyncio.gather(*self.running_tasks)
+        #self.running_tasks.append(asyncio.Task(self.ping()))
+
+        try:
+            await self.gather
+        except:
+            self.quit_async()
 
 
 online_config = online_config_class()
@@ -2799,14 +2791,14 @@ class refresh_board_class(parent_class):
 
                 # form the borders surrounding the player if it's their turn
                 outer = " "
-                if player_turn == turn_spot: outer = "│"
+                if player_check == turn_spot: outer = "│"
 
                 return f"{outer} player {turn_spot} | {player[turn_spot]['char']} {outer}"
 
             def bottom_info():
                 outer = extra_space = extra_extra_space = output = ""
 
-                if player_turn == turn_spot: outer = "│"
+                if player_check == turn_spot: outer = "│"
                 else: outer = " "
 
                 if player[turn_spot]["status"] in ("playing", "jail"):
@@ -2826,9 +2818,15 @@ class refresh_board_class(parent_class):
                 return output
 
             def outer():
-                if   player_turn == players_playing - (position - 1)    : return "┌───────────────┐"
-                elif player_turn == players_playing - (alt_position - 1): return "└───────────────┘"
+                if   player_check == players_playing - (position - 1)    : return "┌───────────────┐"
+                elif player_check == players_playing - (alt_position - 1): return "└───────────────┘"
                 else                                                    : return "                 "
+
+            # outlines playing player if online, as opposed to current player
+            if online_config.game_strt_event.is_set():
+                player_check = online_config.player_num
+            else:
+                player_check = player_turn
 
             output = "                 " # 17 spaces
             turn_spot = players_playing - (position - 1)
@@ -2877,6 +2875,13 @@ class refresh_board_class(parent_class):
         current_screen = self.__name__
         clear_screen()
 
+        # once player finishes roll, updates player turn player 
+        if online_config.game_strt_event.is_set() and player_action.dice_rolled and refresh_board.action == None:
+            _list = [item[1]["$$$"] for item in player.items()]
+
+            send_data(f"turnfinished:{player[player_turn]['pos']}:{_list}")
+            refresh_board.end_turn_logic()
+
         # It'll all display fine in terminal, don't worry
         print("")
         print("     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
@@ -2920,16 +2925,26 @@ class refresh_board_class(parent_class):
                 break
 
         # additional logic is required for online
-        online_check = lambda: True if (online_config.player_num == player_turn or not online_config.is_online) else False
+        online_check = lambda: True if (online_config.player_num == player_turn or not online_config.game_strt_event.is_set()) else False
 
         # similar checks are performed for the other prompts
         # if the player has spent 3 turns in jail, they MUST pay bail, regardless of conditions
-        button_states[0] = (online_check() and player_movement.dice_rolled == False and self.action == None and player[player_turn]["jail time"] < 3)
+        button_states[0] = (online_check() and player_action.dice_rolled == False \
+            and self.action == None and player[player_turn]["jail time"] < 3)
 
-        if self.action == None and player_movement.dice_rolled == True:
+        if (self.action == None and player_action.dice_rolled == True) or \
+                (online_config.game_strt_event.is_set() and online_config.socket_type == "host"):
             button_states[2] = True
 
-        button_list = create_button_prompts(["Roll dice", prompt_2, "End turn", "Save & Exit"], button_states, [0, 3, 3, 6])
+        if online_config.game_strt_event.is_set():
+            if online_config.socket_type == "client":
+                prompt_3 = ""
+            else:
+                prompt_3 = "kick user"
+        else: prompt_3 = "End turn"
+
+        button_list = create_button_prompts(["Roll dice", prompt_2, prompt_3, "Save & Exit"], button_states, [0, 3, 3, 6])
+
         print(f"    \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎    {button_list[0]}          \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎")
         print(f"    \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎    {button_list[1]}          \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎")
         print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎    {button_list[2]}          \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
@@ -3037,14 +3052,7 @@ class refresh_board_class(parent_class):
             # moves the cursor above the dice ('ESC[11F') and clears everything below ('ESC[0J')
             print("\x1b[11F\x1b[0J")
 
-            # player movement is disabled within jail
-            if player[player_turn]["pos"] == 40:
-                player_movement.dice_rolling_state = "off"
-                refresh_board()
-                return
-
-            player_movement.dice_rolling_state = "movement"
-            player_movement.mgmt()
+            player_action.move()
 
         elif self.action == "chance notice":
             self.action = None
@@ -3058,16 +3066,31 @@ class refresh_board_class(parent_class):
             self.action = None
             homescreen()
 
+        elif self.action == "kick user":
+            for item in online_config.joined_clients:
+                if item[3] == user_input:
+                    item[1].sendall(b"booted")
+                    self.disconnect_management(item[3])
+                    break
+            else:
+                print("\n    === invalid user ID ===\n\n    ", end = "")
+
         elif user_input in ["r", "R"]:
-            if (player_movement.dice_rolled == False and self.action == None and 
-                    player[player_turn]["status"] != "jail") or dev_mode != False:
+            if (player_action.dice_rolled == False and self.action == None \
+                and player[player_turn]["jail time"] < 3):
                 
                 # additional logic is required for online
-                if online_config.is_online and not (online_config.player_num == player_turn):
-                    print("\n   === it's not your turn ===\n\n    ", end="")
+                if online_config.game_strt_event.is_set() and online_config.player_num != player_turn:
+                    print("\n    === it's not your turn ===\n\n    ", end="")
+                    return
 
                 refresh_board()
-                player_movement.start_roll()
+                player_action.start_roll()
+            elif dev_mode:
+                input("\n    === skipped with devmode [Enter] ===\n\n    ", end="")
+
+                refresh_board()
+                player_action.start_roll()
 
             elif self.action != None:
                 print("\n    === complete space-dependent action first ===\n\n    ", end="")
@@ -3089,20 +3112,22 @@ class refresh_board_class(parent_class):
         elif user_input in ["t", "T"]:
             trade_screen(player_turn)
 
-        elif user_input in ["e", "E"]:
-            if (player_movement.dice_rolled == True and self.action == None) or dev_mode == True:
+        elif user_input in ["e", "E"] and not online_config.game_strt_event.is_set():
+            if (player_action.dice_rolled == True and self.action == None) or dev_mode == True:
                 next(player_turn)
-                player_movement.dice_rolled = False
-                player_movement.doubles_rolled = 0
+                player_action.dice_rolled = False
+                player_action.doubles_rolled = 0
 
                 # when a player goes bankrupt, players alive are checked,
                 # so there will be at least 2 people when this code is active.
-                while player[player_turn]["status"] == "bankrupt": next(player_turn)
+                while player[player_turn]["status"] in ("bankrupt", "disconnected"): next(player_turn)
                 
-                # forcibly moves the player out of jail if they've been in for 3 turns
-                if player[player_turn]["jail time"] >= 3:
-                    player_movement.remove_from_jail(player_turn)
+                # forcibly moves the player out of jail if they've been in for 3 turns,
+                # and they don't have a card
+                if player[player_turn]["jail time"] >= 3 and player[player_turn]["jail passes"] == 0:
+                    player_action.remove_from_jail(player_turn)
                     player[player_turn]["$$$"] -= 50
+
                     if player[player_turn]["$$$"] < 0: player_is_broke(player_turn)
                     
                 refresh_board()
@@ -3117,13 +3142,13 @@ class refresh_board_class(parent_class):
             global time_played
             global game_version
 
-            if online_config.is_online:
+            if online_config.game_strt_event.is_set():
                 send_data("clientquit")
 
             save_game_to_file(
-                "game_version", "players_playing", "player_turn", "player_movement.doubles_rolled",
-                "dev_mode", "player_movement.dice_rolled", "refresh_board.action", "player", "chance.cards_value",
-                "chance.index", "community_chest.cards_value", "community_chest.index"
+                "game_version", "players_playing", "player_turn", "player_action.doubles_count",
+                "dev_mode", "player_action.dice_rolled", "refresh_board.action", "player", "chance.values",
+                "chance.index", "community_chest.values", "community_chest.index"
             )
             self.action = "save notice"
             self.prev_cash = [0, 0, 0, 0]
@@ -3189,18 +3214,25 @@ class refresh_board_class(parent_class):
             # moving the player to just visiting
             if player[player_turn]["$$$"] >= 50:
                 player[player_turn]["$$$"] -= 50
-                player_movement.remove_from_jail(player_turn)
-                refresh_board()
+                player_action.remove_from_jail(player_turn)
             else:
                 print("\n    === you cannot afford bail ===\n\n    ", end = "")
 
         elif user_input in ["u", "U"] and player[player_turn]["status"] == "jail":
             if player[player_turn]["jail passes"] > 0:
                 player[player_turn]["jail passes"] -= 1
-                player_movement.remove_from_jail(player_turn)
-                refresh_board()
+                player_action.remove_from_jail(player_turn)
             else:
                 print("\n    === you don't have any get out of jail free cards to use ===\n\n    ", end = "")
+
+        elif user_input in ["k", "K"] and online_config.game_strt_event.is_set() \
+                and online_config.socket_type == "host":
+            self.action = "kick user"
+            print("\n    === enter ID of player you wish to kick ===\n")
+
+            for item in online_config.joined_clients:
+                print(f"    [{item[3]}] {item[0]}")
+            print("\n    ", end="")
 
         elif user_input == "devmode":
             dev_mode = True
@@ -3223,11 +3255,9 @@ class refresh_board_class(parent_class):
                 print(f"{i}: {player[i]}")
 
         elif user_input == "setdiceroll" and dev_mode == True:
-            player_movement.dice_value[1] = int(input("    === first dice value: "))
-            player_movement.dice_value[2] = int(input("    === second dice value: "))
-            player_movement.current_die_rolling = 3
-            player_movement.dice_countdown = 1
-            player_movement.dice_roll_animation()
+            player_action.dice_value[1] = int(input("    === first dice value: "))
+            player_action.dice_value[2] = int(input("    === second dice value: "))
+            player_action.move()
            
         elif user_input == "bankruptcy" and dev_mode == True:
             x = input("    === which player: ")
@@ -3322,6 +3352,11 @@ class refresh_board_class(parent_class):
             else:
                 print("    === variable not found ===\n\n    ", end = "")
 
+        elif user_input == "queuechance" and dev_mode == True:
+            card = int(input("    === enter num: "))
+            chance.values.remove(card)
+            chance.values.insert(chance.index + 1, card)
+
         elif user_input == "arbitrarycode" and dev_mode == True:
             exec(input())
 
@@ -3351,20 +3386,43 @@ class refresh_board_class(parent_class):
         else:
             print("\n    === command not recognised ===\n\n    ", end = "")
 
+    def disconnect_management(self, quitter):
+        super().disconnect_management(quitter)
+        self()
+
+        if online_config.socket_type == "client":
+            index = online_config.joined_clients[2].index(quitter)
+            name = online_config.joined_clients[0][index]
+        else:
+            for item in online_config.joined_clients:
+                if item[3] == quitter:
+                    name = item[0]
+                    break
+
+        print(f"=== {name} lost connection to game ===\n\n    ", end="")
+
+    def end_turn_logic(self):
+        """increments the player turn, handles edge cases"""
+        global player_turn
+
+        next(player_turn)
+        player_action.dice_rolled = False
+        player_action.doubles_rolled = 0
+
+        # when a player goes bankrupt, players alive are checked,
+        # so there will be at least 2 people when this code is active.
+        while player[player_turn]["status"] in ("bankrupt", "disconnected"): next(player_turn)
+                
+        # forcibly moves the player out of jail if they've been in for 3 turns,
+        # and they don't have a card
+        if player[player_turn]["jail time"] >= 3 and player[player_turn]["jail passes"] == 0:
+            player_action.remove_from_jail(player_turn)
+            player[player_turn]["$$$"] -= 50
+
+            if player[player_turn]["$$$"] < 0: player_is_broke(player_turn)
+
 
 refresh_board = refresh_board_class()
-
-
-def new_game():
-    """initialises a new game, and calls game notice pre-screen"""
-    global player_display_location
-    global start_time
-         
-    update_player_position(0)
-
-    start_time = time()
-
-    display_game_notice()
 
 
 class display_game_notice_class(parent_class):
@@ -3390,6 +3448,8 @@ class display_game_notice_class(parent_class):
         print("    the board is the length of this line, adjust until the line doesn't wrap around your screen.\n    ", end = "")
 
     def input_management(self, user_input):
+        global start_time
+        start_time = time()
         refresh_board()
 
 
@@ -3455,6 +3515,7 @@ class new_game_select_class(parent_class):
         global players_playing
         global player_turn
         global player
+
         if user_input in ["2", "3", "4"]:
 
             players_playing = int(user_input)
@@ -3519,10 +3580,12 @@ class new_game_select_class(parent_class):
 
             if player_turn == 1:
                 self.action = None
-                new_game()
+
+                update_player_position(0)
+
+                display_game_notice()
             else:
                 self()
-        
         else:
             print("\n    === command not recognised ===\n\n    ", end = "")
 
@@ -3548,6 +3611,10 @@ def read_save(
     # so the end-screen calculations reflect the extra time played
     global start_time
     start_time = time() - time_played
+
+    for item in player.values():
+        update_player_position(item["pos"])
+
 
     if game_version != true_game_version:
         raise Exception("=== save is not the same version as game ===")
@@ -3583,23 +3650,28 @@ def save_game_to_file(*variables: str):
     save_file.close()
 
 
-def bankruptcy(_player: int | None = player_turn, cause = "bank"):
+def bankruptcy(_player: int | None = player_turn, cause = "bank" or "disconnected" or 1/2/3/4):
     """
     determines how to handle a player's bankruptcy, based on cause,
     and displays win/game finished screen if applicable
-
-    cause should either be "bank" or the player owed (1/2/3/4)
     """
     global player_turn
     global house_total
     global hotel_total
 
-    player[_player]["status"] = "bankrupt"
+    # ensures no key errors
+    _player = int(_player)
+
+    if cause == "disconnected":
+        player[_player]["status"] = "disconnected"
+        cause = "bank"
+    else:
+        player[_player]["status"] = "bankrupt"
     
     # this is checking how many players remain after a bankruptcy
     remaining_players = 0
-    for i in player.values():
-        if i["status"] == "playing": remaining_players += 1
+    for i in player.items():
+        if i[1]["status"] in ("playing", "jail"): remaining_players += 1
 
     # if only one player remains, then the game finished screen is displayed
     # otherwise, the rest of the function is performed
@@ -3639,11 +3711,14 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank"):
         print("    ║                                                                ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print("\n    ", end = "")
-        exit()
+
+        if online_config.game_strt_event.is_set():
+            raise exit_async
+        return
 
     # finds next competing player
     next(player_turn)
-    while player[player_turn]["status"] != "playing":
+    while player[player_turn]["status"] in ("bankrupt", "disconnected"):
         next(player_turn)
 
     # adds houses and hotels back as available
@@ -3706,7 +3781,7 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank"):
         player[owed_player]["$$$"] += player[_player]["$$$"]
 
 
-class player_movement_class(parent_class):
+class player_action_class(parent_class):
     """allows players to move on the dice roll"""
     def __init__(self):
 
@@ -3726,7 +3801,7 @@ class player_movement_class(parent_class):
         # so I can index die 1 as [1] and die 2 as [2]
         self.dice_value = [None, 0, 0]
         self.dice_countdown = 0
-        self.doubles_rolled = 0
+        self.doubles_count = 0
         self.dice_rolled = False
 
         self.doubles_art = [
@@ -3739,8 +3814,116 @@ class player_movement_class(parent_class):
             '   ✨  \\  / | () | | || |    | ⁐|_ \\__ \\ | (⁐⁐   / ^ \\  | ⁐_/ | ⁐|_ | [) |    __| |  / ^ \\  ⁐| |⁐ | |_  ✨    ',
             ' ✨    /_/   \\__/   \\__/     |___| |___/  \\___| /_/‾\\_\\ |_|   |___| |___/     \\___| /_/‾\\_\\ |___| |___|     ✨'
             ]
+    
+    def __call__(self, _player: int | None = player_turn):
+        """updates actions based on given player's position"""
 
-    def remove_from_jail(self, _player):
+        # chance + C.C card actions
+        if player[_player]["pos"] in [7, 22, 36]:
+            refresh_board.action = "chance notice"
+
+            print(chance.art[0])
+            print(f"    {chance.art[1]}")
+            print(f"    {chance.art[2]}")
+            print()
+            print(f"    === {chance.draw_card()} ===\n\n    ", end="")
+
+        elif player[_player]["pos"] in [2, 17, 33]:
+            refresh_board.action = "community chest notice"
+
+            print(community_chest.art[0])
+            print(f"    {community_chest.art[1]}")
+            print(f"    {community_chest.art[2]}")
+            print()
+            print(f"    === {community_chest.draw_card()} ===\n\n    ", end="")
+
+        # income & super tax
+        elif player[_player]["pos"] == 4:
+            player[player_turn]["$$$"] -= 200
+
+        elif player[_player]["pos"] == 38:
+            player[player_turn]["$$$"] -= 100
+
+        # go to jail space
+        elif player[_player]["pos"] == 30:
+            self.send_to_jail()
+
+        # properties
+        elif player[_player]["pos"] not in [0, 10, 20, 40]:
+            self.rent_mgmt(_player)
+
+    def rent_mgmt(
+            self, _player: int, 
+            rent_multi: int | None = 1,
+            rent_fixed: int | None = None):
+        """
+        determines rent owed, or if the property can be bought.
+
+        rent_fixed is applied equally to upgraded properties 
+        (except mortgaged), and is applied alongside rent_multi.
+
+        rent_multi overrides utility multiplier
+        """
+
+        _prop = prop_from_pos[player[_player]["pos"]]
+        _owner = property_data[_prop]["owner"]
+        if _owner == None:
+            refresh_board.action = "property"
+            return
+
+        elif property_data[_prop]["upgrade state"] == -1:
+            return
+
+        elif rent_fixed != None:
+            player[_player]["$$$"] -= rent_fixed * rent_multi
+            player[_owner]["$$$"] += rent_fixed * rent_multi
+                 
+        elif property_data[_prop]["type"] == "utility":
+
+            # if the player ownes both utilities (rent = 10x dice roll)
+            if property_data[7]["owner"] == _owner and property_data[10]["owner"] == _owner:
+                    
+                # if the multiplier is default (1), it is changed to 10
+                if rent_multi == 1: rent_multi = 10
+                player[_player]["$$$"] -= (self.dice_value[1] + self.dice_value[2]) * rent_multi
+                player[_owner]["$$$"] += (self.dice_value[1] + self.dice_value[2]) * rent_multi
+            else:
+                if rent_multi == 1: rent_multi = 10
+                player[_player]["$$$"] -= (self.dice_value[1] + self.dice_value[2]) * rent_multi
+                player[_owner]["$$$"] += (self.dice_value[1] + self.dice_value[2]) * rent_multi
+
+        elif property_data[_prop]["type"] == "station":
+
+            # counts how many stations owned to determine rent
+            num = 0
+            for i in [2, 10, 17, 25]:
+                if property_data[i]["owner"] == _owner: num += 1
+            player[_player]["$$$"] -= station_rent[num] * rent_multi
+            player[_owner]["$$$"] += station_rent[num] * rent_multi
+                
+        # properties with houses or hotels
+        elif property_data[_prop]["upgrade state"] > 2:
+
+            # eg: if upgrade_state = 3; key would be "h1"
+            key = f"h{property_data[_prop]['upgrade state'] - 2}"
+            player[_player]["$$$"] -= property_data[_prop][key] * rent_multi
+            player[_owner]["$$$"] += property_data[_prop][key] * rent_multi
+
+        # properties in a colour set
+        elif property_data[_prop]["upgrade state"] == 2:
+            player[_player]["$$$"] -= property_data[_prop]["rent"] * 2 * rent_multi
+            player[_owner]["$$$"] += property_data[_prop]["rent"] * 2 * rent_multi
+
+        elif property_data[_prop]["upgrade state"] == 1:
+            player[_player]["$$$"] -= property_data[_prop]["rent"] * rent_multi
+            player[_owner]["$$$"] += property_data[_prop]["rent"] * rent_multi
+
+        if player[_player]["$$$"] < 0:
+            player_is_broke(_player, _owner)
+
+    def remove_from_jail(self, _player: int | None = player_turn):
+        """moves player from jail to just visiting"""
+
         player[_player]["pos"] = 10
         player[_player]["jail time"] = 0
         player[_player]["status"] = "playing"
@@ -3749,11 +3932,26 @@ class player_movement_class(parent_class):
         update_player_position(10)
         update_player_position(40, "remove")
 
-        # resets the player's roll
-        self.doubles_rolled = 0
-        self.dice_rolled = False
+        refresh_board()
+
+    def send_to_jail(self, _player: int | None = player_turn):
+        """sends given player to jail, doesn't refresh board"""
+        player[player_turn]["last pos"] = player[player_turn]["pos"]
+        player[player_turn]["pos"] = 40
+        player[player_turn]["status"] = "jail"
+        
+        self.dice_rolled = True
+
+        update_player_position(40)
+        update_player_position(player[player_turn]["last pos"], "remove")
 
     def start_roll(self):
+        """main entry to start dice roll animation"""
+        global current_screen
+        global player_turn
+        self.dice_rolling_state = 1 # starts first dice roll
+        self.dice_countdown = 10
+
         self.dice_value[1] = randint(1, 6)
         print("┌───────────┐")
         print("    │           │")
@@ -3762,238 +3960,160 @@ class player_movement_class(parent_class):
         print(f"    {self.dice_image_frame[self.dice_value[1]][2]}")
         print("    │           │")
         print("    └───────────┘")
-        self.dice_rolling_state = 1
-        self.dice_countdown = 10
 
         # moves the cursor (text output location) to the middle of the die
         print("\x1b[6F")
 
-        self.mgmt()
+        while self.dice_rolling_state != "off":
+            sleep(150)
+            self.dice_countdown -= 1
 
-    def movement_setup(self):
-        global current_screen
+            if self.dice_rolling_state == 1:
+
+                # generates random dice value, different to the last number
+                x = randint(1, 6)
+                while self.dice_value[1] == x: x = randint(1, 6)
+                self.dice_value[1] = x
+
+                # changes displayed value
+                for i in range(3): print(f"    {self.dice_image_frame[self.dice_value[1]][i]}")
+        
+                # moves the cursor back to the middle of the die
+                print("\x1b[4F")
+
+            elif self.dice_rolling_state == 2:
+
+                x = randint(1, 6)
+                while self.dice_value[2] == x: x = randint(1, 6)
+                self.dice_value[2] = x
+
+                # since the 'doubles' text is next to the dice and not under them,
+                # the calculations need to be performed while the lines are getting printed
+                # different text appears if doubles are rolled to escape jail
+                if self.dice_value[2] == self.dice_value[1] and self.dice_countdown == 0:
+                    for i in range(3):
+                        print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}", end="", )
+                    
+                        if player[player_turn]["pos"] != 40: print(f"      {self.doubles_art[i]}")
+                        else: print(f"      {self.escaped_go_art[i]}")
+
+                else:
+                    for i in range(3):
+                        print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}")
+                
+                # moves the cursor back to the middle of the die
+                print("\x1b[4F")
+
+            if self.dice_countdown == 0 and self.dice_rolling_state == 1:
+                self.dice_value[2] = randint(1, 6)
+
+                print("\x1b[3F")
+                print("    ┌───────────┐   ┌───────────┐")
+                print("    │           │   │           │")
+                for i in range(3):
+                    print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}")
+                print("    │           │   │           │")
+                print("    └───────────┘   └───────────┘")
+                print("\x1b[6F")
+
+                self.dice_rolling_state = 2
+                self.dice_countdown = 10
+
+            elif self.dice_countdown == 0:
+                self.dice_rolling_state = "off"
+
+        # gives player time to check roll (after next logic)
+        print("\x1b[5E")
+        print("    === [Enter] to continue ===\n\n    ", end = "")
+
+        refresh_board.action = "dice_roll_accept"
+
+    def move(self):
+        """start player movement around board, performs movement logic"""
 
         # this is updating the player's last position, so that the player's icon can be removed from the board
         player[player_turn]["last pos"] = player[player_turn]["pos"]
 
+        # increases the doubles streak the player has, or resets it to 0
         if self.dice_value[1] == self.dice_value[2]:
-            self.doubles_rolled += 1
-            
-            # the player escapes jail if they roll doubles
-            if player[player_turn]["status"] == "jail":
-                player[player_turn]["last pos"] = 40
-                player[player_turn]["pos"] = 10
-                player[player_turn]["jail time"] = 0
-                player[player_turn]["status"] = "playing"
+            self.doubles_count += 1
+        else:
+            self.doubles_count = 0
 
-                # updates the board
-                update_player_position(10)
-                update_player_position(40, "remove")
+        # if player rolls 3 doubles in a row, they're sent to jail
+        if self.doubles_count == 3:
+            player_action.send_to_jail()
+            refresh_board()
+            return
 
-                # resets the player's roll
-                self.doubles_rolled = 0
-                self.dice_rolled = False
-
-            # rolling 3 doubles in a row sends the player to jail
-            elif self.doubles_rolled == 3:
-
-                # 40 is the space value for jail
-                player[player_turn]["pos"] = 40
-                player[player_turn]["status"] = "jail"
-                update_player_position(40)
-                update_player_position(player[player_turn]["last pos"], "remove")
-
-                # makes sure that the player can't continue their turn once in jail
-                self.dice_rolled = True
-
-        if player[player_turn]["status"] != "jail":
-
-            # this is adding the dice roll's value to the player's position
-            player[player_turn]["pos"] = (player[player_turn]["pos"] + self.dice_value[1] + self.dice_value[2])
-
-            # makes sure that the player's position is valid (unless they got sent to jail)
-            if player[player_turn]["pos"] >= 40 and player[player_turn]["status"] != "jail":
-                player[player_turn]["pos"] -= 40
-
-        # rolling doubles in jail has logic above, as well as non-jail conditions
-        elif self.dice_value[1] != self.dice_value[2]:
-            player[player_turn]["jail time"] += 1
-
-            # cancels the player movement
-            self.dice_rolled = True
-
-        # moves the cursor back to the bottom of the dice
-        print("\x1b[5E")
-
-        # giving the player time to check their dice roll
-        print("    === [Enter] to continue ===\n\n    ", end = "")
-
-        current_screen = refresh_board.__name__
-        refresh_board.action = "dice_roll_accept"
-
-        # disables the dice to recieve user input, but then is re-enabled
-        self.dice_rolling_state = "off"
-
-        if self.dice_value[1] != self.dice_value[2]: self.doubles_rolled = 0
-        else: self.doubles_rolled += 1
+        # determines player movement length
         self.player_roll_itr = iter(range(self.dice_value[1] + self.dice_value[2]))
 
-    def mgmt(self):
-        """makes the player hop on all the spaces on the way to their roll"""
-        while player_movement.dice_rolling_state != "off":
+        if player[player_turn]["status"] == "jail":
+            if self.doubles_count == 0:
+                player[player_turn]["jail time"] += 1
 
-            global current_screen
-            global player_turn
-
-            # when either die 1 or die 2 is being rolled
-            if self.dice_rolling_state in [1, 2]:
-                sleep(150)
-                self.dice_roll_animation()
-
-            # moves the player's icon forward one space, accounting for passing go
-            elif self.dice_rolling_state == "movement":
-                try:
-                    # determines what space the player is added to
-                    space = next(self.player_roll_itr) + player[player_turn]["last pos"] - 39
-                    if space < 0: space += 40
-                    update_player_position(space)
-
-                    # removes player from previous space, but if space is negative, add 40,
-                    # for when the player passes go (eg: currently at space 0, remove from 39)
-                    space -= 1
-                    if space < 0: space += 40
-                    update_player_position(space, "remove")
-
-                    sleep(500)
-                    refresh_board()
-
-                # once the iterator has ran out the player is at the 
-                # correct spot and the board will stop being refreshed
-                except StopIteration:
-
-                    # only happens once the player passes go and their position is reset
-                    # extra check if the player leaves jail to stop passed go text
-                    if player[player_turn]["pos"] < player[player_turn]["last pos"] and player[player_turn]["last pos"] != 40:
-                        player[player_turn]["$$$"] += 200
-                        refresh_board.passed_go = True
-
-                    player_action(player_turn)
-                   
-                    self.dice_rolling_state = "off"
-                    if self.doubles_rolled in [0, 3]: self.dice_rolled = True
-
-                    if online_config.is_online == True:
-                        send_data("turnfinished")
-
-                    # board isn't displayed if chance/community chest displays message
-                    if not (refresh_board.action in ("chance notice", "community chest notice")): refresh_board()
-
-    def dice_roll_animation(self):
-        self.dice_countdown -= 1
-
-        if self.dice_rolling_state == 1:
-
-            # generates random dice value, different to the last number
-            x = randint(1, 6)
-            while self.dice_value[1] == x: x = randint(1, 6)
-            self.dice_value[1] = x
-
-            # changes displayed value
-            for i in range(3): print(f"    {self.dice_image_frame[self.dice_value[1]][i]}")
+                # cancels the player movement
+                self.dice_rolled = True
         
-            # moves the cursor back to the middle of the die
-            print("\x1b[4F")
-
-        elif self.dice_rolling_state == 2:
-
-            x = randint(1, 6)
-            while self.dice_value[2] == x: x = randint(1, 6)
-            self.dice_value[2] = x
-
-            # since the 'doubles' text is next to the dice and not under them,
-            # the calculations need to be performed while the lines are getting printed
-
-            # it only is done when the dice are finished rolling,
-            # or otherwise it will appear while the dice are rolling
-
-            # different text appears if doubles are rolled to escape jail
-            if self.dice_value[2] == self.dice_value[1] and self.dice_countdown == 0:
-                for i in range(3):
-                    print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}", end="", )
-                    if player[player_turn]["pos"] != 40: print(f"      {self.doubles_art[i]}")
-                    else: print(f"      {self.escaped_go_art[i]}")
-
-            else:
-                for i in range(3):
-                    print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}")
-                
-            # moves the cursor back to the middle of the die
-            print("\x1b[4F")
-
-        if self.dice_countdown == 0 and self.dice_rolling_state == 1:
-            self.dice_value[2] = randint(1, 6)
-
-            print("\x1b[3F")
-            print("    ┌───────────┐   ┌───────────┐")
-            print("    │           │   │           │")
-            for i in range(3):
-                print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}")
-            print("    │           │   │           │")
-            print("    └───────────┘   └───────────┘")
-            self.dice_rolling_state = 2
-            self.dice_countdown = 10
-
-            # moves the cursor (text output location) to the middle of the die
-            print("\x1b[6F")
-
-        elif self.dice_countdown == 0:
-            global current_screen
-
-            current_screen = refresh_board.__name__
-            refresh_board.action = "dice_roll_accept"
-
-            # this is updating the player's last position, so that the player's icon can be removed from the board
-            player[player_turn]["last pos"] = player[player_turn]["pos"]
-
-            # increases the doubles streak the player has, or resets it to 0
-            if self.dice_value[1] == self.dice_value[2]: self.doubles_rolled += 1
-            else: self.doubles_rolled = 0
-            
-            # gives player time to check roll (after next logic)
-            print("\x1b[5E")
-            print("    === [Enter] to continue ===\n\n    ", end = "")
-
-            # disables the dice to receive user input, but then is re-enabled
-            self.dice_rolling_state = "off"
-
-            # determines player movement length
-            self.player_roll_itr = iter(range(self.dice_value[1] + self.dice_value[2]))
-
             # the player escapes jail if they roll doubles
-            if player[player_turn]["status"] == "jail":
-                if self.doubles_rolled == 0:
-                    player[player_turn]["jail time"] += 1
+            else:
+                self.remove_from_jail(player_turn)
+                
+                # a player that escapes jail gets to go again
+                self.doubles_count = 0
+                self.dice_rolled = False
+            
+            refresh_board()
+            return # stops movement and position change
 
-                    # cancels the player movement
+        # this is adding the dice roll's value to the player's position
+        player[player_turn]["pos"] = (player[player_turn]["pos"] + self.dice_value[1] + self.dice_value[2])
+
+        # makes sure that the player's position is valid
+        if player[player_turn]["pos"] >= 40:
+            player[player_turn]["pos"] -= 40
+
+        while True:
+            try:
+                # determines what space the player is added to
+                space = next(self.player_roll_itr) + player[player_turn]["last pos"] - 39
+
+            # once the iterator has ran out the player is at the 
+            # correct spot and the board will stop being refreshed
+            except StopIteration:
+
+                # only happens once the player passes go and their position is reset
+                # extra check if the player leaves jail to stop passed go text
+                if player[player_turn]["pos"] < player[player_turn]["last pos"] and player[player_turn]["last pos"] != 40:
+                    player[player_turn]["$$$"] += 200
+                    refresh_board.passed_go = True
+
+                player_action(player_turn)
+                   
+                self.dice_rolling_state = "off"
+                if self.doubles_count in [0, 3]:
                     self.dice_rolled = True
 
-            # rolling 3 doubles in a row sends the player to jail
-            elif self.doubles_rolled == 3:
+                # board isn't displayed if chance/community chest displays message
+                if not (refresh_board.action in ("chance notice", "community chest notice")): refresh_board()
+                return
 
-                # this function needs to be accessed externally when using GooJ free cards
-                self.remove_from_jail()
+            else:
+                if space < 0: space += 40
+                update_player_position(space)
 
-            if player[player_turn]["status"] != "jail":
+                # removes player from previous space, but if space is negative, add 40,
+                # for when the player passes go (eg: currently at space 0, remove from 39)
+                space -= 1
+                if space < 0: space += 40
+                update_player_position(space, "remove")
 
-                # this is adding the dice roll's value to the player's position
-                player[player_turn]["pos"] = (player[player_turn]["pos"] + self.dice_value[1] + self.dice_value[2])
-
-                # makes sure that the player's position is valid
-                if player[player_turn]["pos"] >= 40 :
-                    player[player_turn]["pos"] -= 40
+                sleep(500)
+                refresh_board()
 
 
-player_movement = player_movement_class()
+player_action = player_action_class()
 
 
 def run():
@@ -4007,6 +4127,7 @@ def run():
 async def get_input():
     """gets user input (nonblocking) and executes appropriate logic"""
     loop = asyncio.get_running_loop()
+
     while not online_config.stop_event.is_set():
         u_input = await loop.run_in_executor(None, input)
         globals()[current_screen].input_management(u_input)
@@ -4030,7 +4151,7 @@ async def get_data():
                     continue
                 
                 except (ConnectionError, ConnectionAbortedError, ConnectionResetError, ConnectionRefusedError):
-                    
+
                     # host alerts other clients that this client has lost communication
                     for sub_item in online_config.joined_clients:
                         if sub_item != item:
@@ -4038,22 +4159,69 @@ async def get_data():
                     
                     globals()[current_screen].disconnect_management(item[3])
 
+                except Exception as e:
+                    input(f"{e=}")
+
                 # ensures all clients except sender receive message
                 for sub_item in online_config.joined_clients:
                     if sub_item != item:
                         sub_item[1].sendall(f"{online_input}:{item[2]}".encode())
 
-                if online_input == "clientquit":
+                if online_input.startswith("clientquit"):
+                    # host alerts other clients that this client has lost communication
+                    for sub_item in online_config.joined_clients:
+                        if sub_item != item:
+                            sub_item[1].sendall(f"clientquit:{item[3]}".encode())
 
-                    if online_config.game_strt_event.is_set():
-                        player
-                    # removes the client from the host's list
-                    online_config.joined_clients.remove(item)
+                    globals()[current_screen].disconnect_management(item[3])
 
-                    # updates the host wait screen
-                    online_config.host_wait_screen()
-                elif online_input == "turnfinshed":
-                    next(player_turn)
+                elif online_input.startswith("turnfinshed"):
+                    refresh_board.end_turn_logic()
+               
+
+                elif online_input.startswith("turnfinished:"):
+                    _, player_change, money_change, _ = online_input.split(":")
+                    money_change = eval(money_change)
+                
+                    for i in range(players_playing):
+                        player[i + 1]["$$$"] = money_change[i]
+                
+                    # ensures player is sent to jail across all devices
+                    if player_change == 40:
+                        player_action.send_to_jail()
+                    else:
+                        player[player_turn]["last pos"] = player[player_turn]["pos"]
+                        player[player_turn]["pos"] = int(player_change)
+
+                        update_player_position(player[player_turn]["pos"])
+                        update_player_position(player[player_turn]["last pos"], "remove")
+
+                    refresh_board.end_turn_logic()
+
+                    if current_screen == refresh_board:
+                        refresh_board()
+                    elif online_config.player_num == player_turn and player_turn == online_config.player_num:
+                        print("\n    === it's now your turn to roll ===\n\n    ", end="")
+                elif online_input.startswith("ping"):
+                    send_data("ack")
+
+                    # position in clients list == position in ping list
+                    online_config.ping_count[online_config.joined_clients.index(item)] = 0
+
+                # resets timeout count to 0
+                elif online_input.startswith("ack"):
+                    online_config.ping_count[online_config.joined_clients.index(item)] = 0
+
+                elif online_input.startswith("varupdate:"):
+                    _, var, value = online_input.split(":")
+                    globals()[var] = eval(value)
+
+                elif online_input.startswith("carddrawn:"):
+                    _, card = online_input.split(":")
+                    if card == "cc": community_chest.draw_card()
+                    else: chance.draw_card()
+                elif online_input == '':
+                    return
                 else:
                     input(f"{online_input=}")
       
@@ -4070,12 +4238,9 @@ async def get_data():
 
             except (ConnectionAbortedError, ConnectionResetError, ConnectionError, ConnectionRefusedError):
                 online_config.connection_lost()
-                
-                # stops asynchronous actions
-                online_config.stop_event.set()
-                online_config.is_online = False
-
                 return
+
+            # if user exits out, then message doesn't need to be shown
             except OSError:
                 return
 
@@ -4083,14 +4248,13 @@ async def get_data():
             except UnicodeDecodeError:
                 continue
 
+            # for debugging
             except Exception as e:
                 input(f"{e=}")
 
-            if online_input == "booted":
+            if online_input.startswith("booted"):
                 online_config.kicked_notice()
-
-                # stops asynchronous actions
-                online_config.stop_event.set()
+                return
 
             elif online_input.startswith("users update:"):
 
@@ -4105,15 +4269,16 @@ async def get_data():
                 _, quitter = online_input.split(":")
 
                 if online_config.game_strt_event.is_set():
-                    player[quitter]["status"] = "DISCONNECTED"
+                    player[quitter]["status"] = "disconnected"
 
                 globals()[current_screen].disconnect_management(quitter)
 
-            elif online_input == "hoststart":
+            elif online_input.startswith("hoststart"):
                 player = {}
+                players_playing = len(online_config.joined_clients[0])
 
                 # creates the players using the characters provided
-                for i in range(len(online_config.joined_clients[0])):
+                for i in range(players_playing):
                     player[i + 1] = {
                     "char": online_config.joined_clients[1][i],
                     "$$$": 1500,
@@ -4128,26 +4293,61 @@ async def get_data():
                     "version": game_version
                 }
 
-                player_turn = 1
+                player_turn = better_iter(range(1, players_playing + 1), True)
+                update_player_position(0)
                 online_config.game_strt_event.set()
                 display_game_notice()
-                players_playing = len(online_config.joined_clients[0])
 
             elif online_input.startswith("turnfinished:"):
-                next(player_turn)
-                if current_screen == "refresh_board":
-                    refresh_board()
+                _, player_change, money_change, _ = online_input.split(":")
+                money_change = eval(money_change)
+                
+                for i in range(players_playing):
+                    player[i + 1]["$$$"] = money_change[i]
+                
+                # ensures player is sent to jail across all devices
+                if player_change == 40:
+                    player_action.send_to_jail()
                 else:
+                    player[player_turn]["last pos"] = player[player_turn]["pos"]
+                    player[player_turn]["pos"] = int(player_change)
+
+                    update_player_position(player[player_turn]["pos"])
+                    update_player_position(player[player_turn]["last pos"], "remove")
+
+                refresh_board.end_turn_logic()
+
+                if current_screen == refresh_board:
+                    refresh_board()
+                elif online_config.player_num == player_turn and player_turn == online_config.player_num:
                     print("\n    === it's now your turn to roll ===\n\n    ", end="")
+            
+            elif online_input.startswith("varupdate:"):
+                _, var, value = online_input.split(":")
+                globals()[var] = eval(value)
+
+            elif online_input.startswith("carddrawn:"):
+                _, card = online_input.split(":")
+                if card == "cc": community_chest.draw_card()
+                else: chance.draw_card()
+
+            elif online_input.startswith("ping"):
+                send_data("ack")
+                online_config.ping_count = 0
+
+            # resets timeout count to 0
+            elif online_input.startswith("ack"):
+                    online_config.ping_count = 0  
             else:
                 # I know this is blocking, but it should ensure
                 # that logic errors are visible for debugging
                 input(f"{online_input=}")
-    await asyncio.sleep(1)
+            
+            await asyncio.sleep(1)
 
 
-async def send_data(data: str):
-    """sends the message to correct socket. handles hosts and clients"""
+def send_data(data: str):
+    """sends message to correct socket. appends ID to end of message"""
     if online_config.socket_type == "host":
         for item in online_config.joined_clients:
             item[1].sendall(f"{data}:{online_config.player_num}".encode())
