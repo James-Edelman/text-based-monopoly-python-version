@@ -1,4 +1,4 @@
-﻿"""contains a custom iterator, it's previous() function, and a custom error"""
+﻿"""contains a custom iterator, its previous() function, and a custom error"""
 
 # except statements catch index errors in case loop is enabled,
 # but it not, this is raised in lieu

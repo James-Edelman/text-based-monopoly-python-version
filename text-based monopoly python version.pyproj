@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>108ff34c-da57-436e-a52f-76e1e5111b37</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>text_based_monopoly_python_version.py</StartupFile>
+    <StartupFile>main.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -12,6 +12,7 @@
     <Name>text-based monopoly python version</Name>
     <RootNamespace>text-based monopoly python version</RootNamespace>
     <InterpreterId>Global|PythonCore|3.13</InterpreterId>
+    <IsWindowsApplication>False</IsWindowsApplication>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -22,7 +23,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="text_based_monopoly_python_version.py" />
+    <Compile Include="main.py" />
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="Global|PythonCore|3.13" />

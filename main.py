@@ -1,16 +1,15 @@
-﻿"""
-a game of monopoly playable in a text window.
-can be executed as main program or imported
-"""
+﻿"""a game of monopoly playable in a text window"""
 
 import asyncio # needed for online (to get input and data at the same time)
-from os import system, name # used for clearing the screen
+from os import system, name, getpid # used for clearing the screen, exiting
 from random import randint, shuffle # used for dice rolling, chance/CC card shuffling
 from sys import exit # used to end the program
-import socket # online communication
+from socket import socket, gethostname, gethostbyname, AF_INET, SOCK_STREAM # online communication
 from time import time # used to determine total play time, for sleep()
 from unicodedata import east_asian_width as width # used to determine if names is correct width
 from better_iterator import better_iter, tripple_affirmative # used for the player turn
+
+#from online import *
 
 # setting the terminal name
 print("\033]1;💰 Text-Based Monopoly 💰\007")
@@ -21,7 +20,7 @@ dev_mode = False
 house_total = 32
 hotel_total = 12
 time_played = 0
-game_version = 0.9
+game_version = 0.96
 player_turn = None
 
 globals().update({"skibidi skibidi hawk tuah": 67}) # this variable serves no purpose
@@ -191,7 +190,7 @@ def create_button_prompts(
     return(button_list)
 
 
-def update_player_position(_pos: int, _action = "add"):
+def update_player_position(_pos: int, _action = "add" or "remove"):
     """
     updates the displayed segments where player is shown.
     action is either 'add' or 'remove', and the positions are 0-27
@@ -239,7 +238,7 @@ def update_player_position(_pos: int, _action = "add"):
 
     # updates display
     player_display_location[_pos][0] = string
- 
+
 
 type decorator = function
 def coro_protection(coro) -> decorator:
@@ -261,19 +260,19 @@ class exit_async(BaseException):
     pass
 
 
-# used for reseting variables (see: refresh_board.input_mgmt > 's')
+# used for resetting variables (see: refresh_board.input_mgmt > 's')
 class parent_class:
     def disconnect_management(self, quitter):
-        """handles an online player leaving mid-game"""
-        if online_config.game_strt_event.is_set():
-            bankruptcy(quitter, "disconnect")
-            if online_config.socket_type != "host":
-                return
-            
-            for item in online_config.joined_clients:
-                if item[3] == quitter:
-                    _return = item[1]
-                    online_config.joined_clients.remove(item)
+        """handles an online player leaving mid-game.
+        
+        this will initiate a bankruptcy and could cause an auction,
+        so should be done after screen-specific actions
+        """ 
+        if online_config.socket_type == "client":
+            print(f"=== player {quitter} ({online_config.joined_clients[0][quitter]}) has gone bankrupt! ===\n\n    ", end ="")
+        else:
+            print(f"=== player {quitter} ({online_config.joined_clients[quitter][0]}) has gone bankrupt! ===\n\n    ", end="")
+        bankruptcy(quitter, "disconnect")
 
     def input_management(self, user_input):
         """determines what action to perform with user input"""
@@ -630,7 +629,7 @@ class display_property_class(parent_class):
         if len(_prop_num) > 1 or bid:
             self.property_queue = list(_prop_num)
 
-            # ensures that a copy isn't made halfway through an auction
+            # ensures that it isn't resent halfway through an auction
             if not self.player_bid_turn:
                 self.player_bid_turn = player_turn.copy()
 
@@ -1159,7 +1158,7 @@ class display_property_class(parent_class):
                     reverse = True
                 )
 
-                self(*self.property_queue, bid = True)              
+                self(*self.property_queue, bid = True)
 
         else:
             if user_input in ["b", "B"]:
@@ -1183,6 +1182,10 @@ class display_property_class(parent_class):
                 if property_data[self.property]["upgrade state"] in [1, 2]:
                     property_data[self.property]["upgrade state"] = -1
                     player[player_turn]["$$$"] += int(property_data[self.property]["street value"] / 2)
+                    
+                    if online_config.game_strt_event.is_set():
+                        send_data(f"propertyupdate:{self.property}:{property_data[self.property]['owner']}:{property_data[self.property]['upgrade state']}")
+
                     display_property(self.property)
 
                 elif property_data[self.property]["upgrade state"] == -1:
@@ -1208,6 +1211,9 @@ class display_property_class(parent_class):
                 player[player_turn]["$$$"] -= cost
                 player[player_turn]["$$$"] = int(player[player_turn]["$$$"])
                 property_data[self.property]["upgrade state"] = 1
+
+                if online_config.game_strt_event.is_set():
+                    send_data(f"propertyupdate:{self.property}:{property_data[self.property]['owner']}:{property_data[self.property]['upgrade state']}")
                 self(self.property)
 
             elif user_input in ["a", "A"] and property_data[self.property]["type"] == "property":
@@ -1234,15 +1240,25 @@ class display_property_class(parent_class):
                         print("\n    === there are no more houses left. all 32 have been purchased ===\n\n    ", end="")
                         return
                     house_total -= 1
+                    var_change = "house" # so online sends update command for correct var
                 else:
                     if hotel_total < 0:
                         print("\n    === there are no more hotels left. all 16 have been purchased ===\n\n    ", end="")
                         return
                     hotel_total -= 1
+                    var_change = "hotel"
 
                 # if exit conditions are passed, then the player can upgrade
                 player[property_data[self.property]["owner"]]["$$$"] -= property_data[self.property]["house cost"]
                 property_data[self.property]["upgrade state"] += 1
+
+                if online_config.game_strt_event.is_set():
+                    send_data(f"propertyupdate:{self.property}:{property_data[self.property]['owner']}:{property_data[self.property]['upgrade state']}")
+                    if var_change == "house":
+                        send_data(f"varupdate:house_total:{house_total}")
+                    else:
+                        send_data(f"varupdate:hotel_total:{hotel_total}")
+                del var_change
                 self(self.property)
 
             elif user_input in ["s", "S"] and property_data[self.property]["type"] == "property":
@@ -1261,11 +1277,21 @@ class display_property_class(parent_class):
                 # adds the house/hotel back into the pool
                 if property_data[self.property]["upgrade state"] == 8:
                     hotel_total += 1
+                    var_change = "hotel"
                 else:
                     house_total += 1
+                    var_change = "house"
 
                 player[property_data[self.property]["owner"]]["$$$"] += property_data[self.property]["house cost"] / 2
                 property_data[self.property]["upgrade state"] -= 1
+
+                if online_config.game_strt_event.is_set():
+                    send_data(f"propertyupdate:{self.property}:{property_data[self.property]['owner']}:{property_data[self.property]['upgrade state']}")
+                    if var_change == "house":
+                        send_data(f"varupdate:house_total:{house_total}")
+                    else:
+                        send_data(f"varupdate:hotel_total:{hotel_total}")
+                del var_change
 
                 self(self.property)
 
@@ -1288,6 +1314,17 @@ class display_property_class(parent_class):
 
             else:
                 print("\n    === command not recognised ===\n\n    ", end="")
+
+    def disconnect_management(self, quitter):
+        super().disconnect_management(quitter) # ignore I said to do last
+
+        if self.action == "auction":
+
+            # checks how many players are participating
+            self.players_bidding = 0
+            for _player in player.items():
+                if _player[1]["status"] not in ("bankrupt", "disconnected"):
+                    self.players_bidding += 1
 
 
 display_property = display_property_class()
@@ -1395,7 +1432,7 @@ class chance_cards_class(parent_class):
            
         elif drawn_card == 4:
             player[player_turn]["last pos"] = player[player_turn]["pos"]
-
+            
             if   player[player_turn]["pos"] >= 35: player[player_turn]["pos"] = 5
             elif player[player_turn]["pos"] >= 25: player[player_turn]["pos"] = 35
             elif player[player_turn]["pos"] >= 15: player[player_turn]["pos"] = 25
@@ -1429,6 +1466,7 @@ class chance_cards_class(parent_class):
             player[player_turn]["status"] = "jail"
             update_player_position(player[player_turn]["pos"])
             update_player_position(player[player_turn]["last pos"], "remove")
+            player_action.dice_rolled = True
             
         elif drawn_card == 9:
             player[player_turn]["$$$"] -= ((player[player_turn]["house total"] * 25) + (player[player_turn]["hotel total"] * 100))
@@ -1565,9 +1603,9 @@ class community_chest_cards_class(parent_class):
         elif drawn_card == 8:
             player[player_turn]["$$$"] += 10 * (players_playing - 1)
 
-            # loops through the players, all other players get deducted $10, checks if they're broke
+            # all other players get deducted $10, checks if they're broke
             for i in range(1, players_playing + 1):
-                if i + 1 != player_turn:
+                if i != player_turn:
                     player[i]["$$$"] -= 10
                     if player[i]["$$$"] < 0 and player[i] == "playing":
                         player_is_broke(i)
@@ -1635,7 +1673,7 @@ class homescreen_class(parent_class):
         except: pass
         else: x.close(); saved_game = True
         
-        for i in create_button_prompts(["Start game", "Continue", "Online"], [True, saved_game, True]):
+        for i in create_button_prompts(["Start game", "Continue", "Online", "Exit"], [True, saved_game, True, True]):
             print(i)
         print("")
         print("    ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
@@ -1679,6 +1717,9 @@ class homescreen_class(parent_class):
             self()
             print("\n    === wow thank you for understanding and not overreacting. ===\n\n    ", end = "")
 
+        elif user_input in ["e", "E"]:
+            print("\n    === bruh. Just close the window it's not that hard ===\n\n    ", end="")
+
         else:
             print("\n    === command not recognised ===\n\n    ", end = "")
 
@@ -1710,11 +1751,8 @@ class online_config_class(parent_class):
         
         self.player_num = None # ID for specific player
 
-        self.ping_count = 0
-        self.max_pings_threshold = 3
-
         # creates a new socket for connection
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket = socket(AF_INET, SOCK_STREAM)
 
     def __call__(self):
         global current_screen
@@ -1889,18 +1927,37 @@ class online_config_class(parent_class):
         print()
         print("    ", end="")
     
+    def hard_mode(self):
+        clear_screen()
+        print("")
+        print(r"       ___  ___        _____     _____ ____     _____      _____      _____     ____     ___  ___"    )
+        print(r"      ╱   ╲╱   ╲      ╱     ╲    │    ╲│  │    ╱     ╲    │  _  \    ╱     ╲    │  │     ╲  \/  ╱ │ coded by:")
+        print(r"     ╱  /╲  ╱\  ╲    │  (_)  │   │  ╲  ╲  │   │  (_)  │   │  ___/   │  (_)  │   │  │__    ╲_  _╱  │ James E.")
+        print(r"    ╱__/  ╲╱  \__╲    ╲_____╱    |__│╲____|    ╲_____╱    |__|       ╲_____╱    |_____|    |__|   │ 2024, 2025")
+        sleep(1500)
+        print()
+        print("\x1b[38;2;248;49;47m                    ██ ██  ▟███▙  ████▙  ████▙   ██▙▟██ ▟███▙ ████▙ ████\x1b[0m")
+        print("\x1b[38;2;248;49;47m                    █████  ██▆██  ██▆█▛  ██ ██   ██▜▛██ ██ ██ ██ ██ ██▆▆\x1b[0m")
+        print("\x1b[38;2;248;49;47m                    ██ ██  ██ ██  ██ ██  ████▛   ██  ██ ▜███▛ ████▛ ██▆▆\x1b[0m")
+        sleep(1000)
+        print()
+        print("\x1b[38;2;255;200;100m                                              ~ COMING SOON ~\x1b[0m")
+
     @coro_protection
     async def get_users(self):
         """allows the host to receive users. Handles connection protocol"""
         if self.socket_type != "host": return
         loop = asyncio.get_running_loop()
 
+        # check() cancels accepting new users once the game starts
         @coro_protection
         async def check():
             # users aren't accepted once game starts
             await self.game_strt_event.wait()
             accept_tsk.cancel()
 
+        # accept needs to cancel check each time a user joins,
+        # otherwise the gather hangs indefinitely from check
         async def accept(target: asyncio.Task):
             # gets a client
             try:
@@ -1937,27 +1994,12 @@ class online_config_class(parent_class):
                 continue
 
             # client sends name immediately after connection
-            _, name, icon, num = client.recv(1024).decode().split(":")
-
-            # determines client id number
-            found_num = False
-            while not found_num:
-
-                # checks if ID already taken
-                for item in self.joined_clients:
-                    if item[3] == num:
-                        client.sendall("False".encode())
-                        num = int(client.recv(1024).decode())
-                        continue
-
-                # if no matches, (or no other clients)
-                found_num = True
-                client.sendall("True".encode())
+            name, icon = client.recv(1024).decode().split(":")
            
-            client.sendall(f"{chance.values}:{community_chest.values}".encode())
+            client.sendall(f"{len(self.joined_clients) + 2}:{chance.values}:{community_chest.values}".encode())
 
             client.setblocking(False)
-            self.joined_clients.append([name, client, icon, num])
+            self.joined_clients.append([name, client, icon, len(self.joined_clients) + 2])
 
             # alerts all clients to update in players
             client_list = [[self.display_name], [self.display_icon], [1]]
@@ -1966,8 +2008,11 @@ class online_config_class(parent_class):
                 client_list[1].append(item[2])
                 client_list[2].append(item[3])
 
+            sleep(150) # should stop messages bunching up for the last joined client
             for item in self.joined_clients:
-                item[1].sendall(f"users update:{client_list}".encode())
+
+                # ID is expected: see comment on client receiving side
+                item[1].sendall(f"users update:{client_list}:{item[3]}%".encode())
 
             # ensures four players maximum isn't exceeded
             if len(self.joined_clients) == 3: return
@@ -1994,12 +2039,25 @@ class online_config_class(parent_class):
                 print("    === please enter a name ===\n\n    ", end="")
                 return
 
+            if "%" in user_input or ":" in user_input:
+                print("\n    === no using '%' or ':' - my bad code relies on them for control characters ===\n\n    ", end="")
+                return
+
+            if len(name) > 20:
+                print("\n    === bro you do not need more than 20 characters try again ===\n\n    ", end="")
+
             # gets display name then player icon (see below)
             self.display_name = user_input
+
+            if user_input.lower() == "frisk":
+                self.hard_mode()
+
             print("\n    === enter player icon ===\n\n    ", end="")
             self.action = "name 2"
 
         elif self.action == "name 2":
+            if "%" in user_input or ':' in user_input:
+                print("\n    === no using '%' or ':' - my bad code relies on them for control characters ===\n\n    ", end="")
 
             # enforces 2 characters width for name
             name_width = 0
@@ -2027,7 +2085,7 @@ class online_config_class(parent_class):
                 # boots the client when name is matched
                 for item in self.joined_clients:
                     if user_input == item[0]:
-                        item[1].sendall(b"booted")
+                        item[1].sendall(b"booted:1%")
                         item[1].close()
                         self.joined_clients.remove(item)
                         break
@@ -2036,6 +2094,7 @@ class online_config_class(parent_class):
                     return
                  
                 print("\x1b[u\x1b[0K", end="", flush=True)
+                self.action_2 = None
                 self.host_wait_screen()
 
             elif self.action_2 == "accept notice":
@@ -2082,12 +2141,6 @@ class online_config_class(parent_class):
                  self.action_2 = "user to boot"
 
             elif user_input in ["b", "B"]:
-
-                # alerts all clients that the host has canceled
-                for items in self.joined_clients:
-                    try: items[1].send("%hostquit%")
-                    except: pass
-
                 # quits the asyncio.gather()
                 self.stop_event.set()
 
@@ -2120,9 +2173,6 @@ class online_config_class(parent_class):
                     print("\n    === Error using join code. please try again ===\n\n    ", end="")
                     return
 
-                # see below loop
-                num = 2 # #1 reserved for host
-
                 # protocol is for joined clients to ensure same version
                 self.socket.sendall(str(game_version).encode())
 
@@ -2133,8 +2183,9 @@ class online_config_class(parent_class):
                     return
 
                 # then names are exchanged
-                self.socket.sendall(f"clientjoin:{self.display_name}:{self.display_icon}:{num}".encode())
+                self.socket.sendall(f"{self.display_name}:{self.display_icon}".encode())
 
+                """
                 # finds unique ID number with host help
                 found_num = False
                 
@@ -2147,17 +2198,19 @@ class online_config_class(parent_class):
                     else:
                         num += 1 # process repeats until valid number
                         self.socket.sendall(str(num).encode())
-
-                self.player_num = num
+                """
                 
                 # ensures chance cards are consistent across games
-                chance_order, cc_order = self.socket.recv(1024).decode().split(":")
+                num, chance_order, cc_order = self.socket.recv(1024).decode().split(":")
+                self.player_num = int(num)
+
                 chance.values = eval(chance_order)
                 community_chest.values = eval(cc_order)
-
+                
                 # receives list of playing clients
-                _, client_list = self.socket.recv(1024).decode().split(":")
-                online_config.joined_clients = eval(client_list)
+                _, client_list, _ = self.socket.recv(1024).decode().split(":")
+                online_config.joined_clients = eval(client_list.removesuffix("%"))
+                online_config.joined_clients[2] = [int(x) for x in online_config.joined_clients[2]]
 
                 # ensures that client screen commands are accessible
                 self.action_2 = None
@@ -2173,7 +2226,6 @@ class online_config_class(parent_class):
                 quit()
 
             elif user_input in ["b", "B"]:
-                send_data("clientquit")
 
                 # ensures other coroutine won't be permanently waiting for another connection
                 self.socket.close()
@@ -2183,14 +2235,17 @@ class online_config_class(parent_class):
                 print("\n    === command not recognised ===\n\n    ", end="")
 
         elif self.action == "mode select":
-            if user_input in ["h", "H"]:
-
+            if user_input in ["h", "H", "FORCELOCALHOST"] or user_input.startswith("port:"):
                 self.socket_type = "host"
                 self.player_num = 1
 
-                # gets user IP
-                self.U_NAME = socket.gethostname()
-                self.U_IP_V4 = socket.gethostbyname(self.U_NAME)
+                if user_input == "FORCELOCALHOST":
+                    self.U_IP_V4 = "127.0.0.1"
+                elif user_input.startswith("port:"):
+                    self.port = int(user_input.split(":")[1])
+                else:
+                    self.U_IP_V4 = gethostbyname(gethostname())
+
                 self.port = 42069
 
                 # this is extremely unlikely, but I want to ensure no errors
@@ -2233,17 +2288,19 @@ class online_config_class(parent_class):
 
             else:
                 print("\n    === command not recognised ===\n\n    ", end="")
+
         else:
             print("\n    === command not recognised ===\n\n    ", end="")
 
     def disconnect_management(self, quitter):
+        quitter = int(quitter)
         if self.socket_type == "client":
 
             # removes the player from user's list of players
-            for client in online_config.joined_clients:
-                if quitter == client[2]:
-                    online_config.joined_clients.remove(client)
-                    break
+            # played ID is used as index to remove from all 3 sub-lists
+            for _list in online_config.joined_clients:
+                del _list[quitter - 1]
+
             self.client_wait_screen()
 
         elif self.socket_type == "host":
@@ -2252,11 +2309,13 @@ class online_config_class(parent_class):
                 if quitter == client[3]:
                     online_config.joined_clients.remove(client)
                     break
+
             self.host_wait_screen()
 
     def quit_async(self):
         """quits all asynchronous tasks"""
-        self.stop_event.set()
+
+        """        self.stop_event.set()
         self.gather.cancel()
         if self.socket_type == "client":
             self.socket.close()
@@ -2265,29 +2324,51 @@ class online_config_class(parent_class):
                 item[1].close()
 
         for task in online_config.running_tasks:
-            task.cancel()
-        #quit()
-        #asyncio.get_running_loop().close()
+            task.cancel()"""
 
-    @coro_protection
-    async def ping(self):
-        """pings the other socket every four seconds"""
-        while not self.stop_event.is_set():
-            send_data("ping")
-            await asyncio.sleep(3)
+        if name == "nt":
+            system(f"taskkill /PID {getpid()} /F")
+        elif name == "posix":
+            system(f"kill -9 {getpid()}")
 
-            # client only has host connection
-            if self.socket_type == "client":
-                self.ping_count += 1
-                if self.ping_count > self.max_pings_threshold:
-                    globals()[current_screen].disconnect_management(1) # host is always ID 1
-            else:
-                # increments count for all clients
-                self.ping_count = [i + 1 for i in self.ping_count]
-                for count in self.ping_count:
-                    if count > self.max_pings_threshold:
-                        globals()[current_screen].disconnect_management(self.ping_count.index(count))
-    
+    def handle_client_quit(self, quitter: int):
+        """as a host, determines how to handle a client quitting.
+        sends appropriate updates to other clients"""
+        if online_config.game_strt_event.is_set():
+            
+            # alerts other clients, removes
+            for item in online_config.joined_clients:
+                if item[3] != quitter:
+                    item[1].sendall(f"clientquit:{quitter}%".encode())
+
+            globals()[current_screen].disconnect_management(quitter)
+            bankruptcy(quitter, "disconnect")
+
+        # otherwise, re-calculates player IDs if game hasn't started yet,
+        # removes the quitter from existence
+        else:
+            # removes quitter
+            del self.joined_clients[quitter - 2] # host doesn't appear, and IDs are 1-4, not 0-3
+            
+            # recalculates IDs
+            ID = 2
+            for client in self.joined_clients:
+                client[3] = ID
+                ID += 1
+
+            # gathers changes
+            client_list = [[self.display_name], [self.display_icon], [1]]
+            for item in self.joined_clients:
+                client_list[0].append(item[0])
+                client_list[1].append(item[2])
+                client_list[2].append(item[3])
+
+            # alerts users of updates
+            for item in self.joined_clients:
+                item[1].sendall(f"users update:{client_list}:{item[3]}%".encode())
+
+            self.host_wait_screen()
+
     async def shell(self):
         """main entry point for asynchronous functions"""
         if dev_mode:
@@ -2295,12 +2376,8 @@ class online_config_class(parent_class):
 
         self.running_tasks = [asyncio.Task(get_input()), asyncio.Task(get_data()), asyncio.Task(self.get_users())]
         self.gather = asyncio.gather(*self.running_tasks)
-        #self.running_tasks.append(asyncio.Task(self.ping()))
 
-        try:
-            await self.gather
-        except:
-            self.quit_async()
+        await self.gather
 
 
 online_config = online_config_class()
@@ -2401,7 +2478,6 @@ class trade_screen_class(parent_class):
 
         clear_screen()
         self.action = "player select"
-        self.is_trade = True
 
         current_screen = self.__name__
 
@@ -2639,32 +2715,31 @@ class trade_screen_class(parent_class):
                     self.action = None
                     refresh_board()
 
-                if self.action != "message":
+                if self.action2 != "message":
                     return
 
-                # if the action is 'message' (player wants to trade with themselves)
-                self.action = None
-
+                # if the action is 'message' (player wants to trade with themselves)                
                 if user_input in ["p", "P"]:
                     self.player_2 = self.player_1
+                    self.action2 = None
                     self.display_trade_window()
+
                     print("=== if you insist... ===\n\n    ", end="")
 
                 elif user_input in ["o", "O"]:
 
                     # clears the conversation and recreates prompts
                     self(self.player_1["player"], self.queued_prop)
-                    
+                    self.action2 = None
             else:
                 if user_input in self.other_players:
-
+                    if online_config.game_strt_event.is_set():
+                        send_data(f"traderequest:{user_input}")
+                        self.action = "await online accept"
+                        return
                     self.player_2["player"] = int(user_input)
                     self.action = None
-
-                    # adds queued property once player selected
-                    if self.queued_prop != None:
-                        self.add_prop_offer(self.queued_prop)
-                        self.queued_prop = None
+                    self.is_trade = True
 
                     self.curr_player = self.player_1
                     self.display_trade_window()
@@ -2673,7 +2748,7 @@ class trade_screen_class(parent_class):
                     print("\n    === you can't trade with yourself! ===\n\n")
                     for i in create_button_prompts(["Pleeeeeeease", "Ok"]): print(i)
                     print("\n    ", end="")
-                    self.action = "message"
+                    self.action2 = "message"
 
                 else:
                     print("\n    === that player does not exist ===\n\n    ", end = "")
@@ -2754,7 +2829,7 @@ class trade_screen_class(parent_class):
         else:
             print("\n    === command not recognised ===\n\n    ", end = "")
 
-        
+       
 trade_screen = trade_screen_class()
 
 
@@ -2864,6 +2939,23 @@ class refresh_board_class(parent_class):
             output += f"${str(abs(change))}\x1b[0m" # adds value; clears colour change
             return output
             
+        def online_name(position: int):
+            if not online_config.game_strt_event.is_set() or position > players_playing:
+                return "                    "
+
+            if online_config.socket_type == "client":
+                name = online_config.joined_clients[0][players_playing - position]
+            else:
+                clients = [item[0] for item in online_config.joined_clients]               
+                clients.insert(0, online_config.display_name)
+                name = clients[players_playing - position]
+                
+            
+            extra_space = ""
+            for i in range(20 - len(name)):
+                extra_space += " "
+            return f"{extra_space}{name}"
+
         # money structure otherwise starts at index 1 from previous use
         self.money_structure.index = -1
 
@@ -2966,7 +3058,7 @@ class refresh_board_class(parent_class):
 
         print(f"    \x1b[7m▊\x1b[0m {houses(11)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(11)} {button_list[0]}                                                    {icon(24)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(24)} ▎")
         print(f"    \x1b[7m▊\x1b[0m {player_display_location[16][0]} \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list[1]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {player_display_location[34][0]} ▎")
-        print(f"    \x1b[7m▊\x1b[0m\x1b[▁▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    {button_list[2]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
+        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    {button_list[2]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m |\\⁔ Marylebone ▎    {button_list[3]}                                                       \x1b[7m▊\x1b[0m Liverpool|∖↙() ▎")
         print("    \x1b[7m▊\x1b[0m ¯| |◁ Station  ▎                                                                                                  \x1b[7m▊\x1b[0m Station  |‿ |  ▎")
         print(f"    \x1b[7m▊\x1b[0m () |  $200     ▎ {icon(10)}                                                                                            {icon(25)} \x1b[7m▊\x1b[0m $200      | () ▎")
@@ -2982,16 +3074,16 @@ class refresh_board_class(parent_class):
         for player_ in player.items(): player_[1]["$$$"] = int(player_[1]["$$$"])
         
         print(f"    \x1b[7m▊\x1b[0m            \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m            ▎")
-        print(f"    \x1b[7m▊\x1b[0m Whitehall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m Park Lane  ▎")    
+        print(f"    \x1b[7m▊\x1b[0m Whitehall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                        {online_name(4)} {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m Park Lane  ▎")    
         print(f"    \x1b[7m▊\x1b[0m {houses(8)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(8)}                                                                  {money_change(4)} {display_money(4)} {icon(26)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(26)} ▎")
         print(f"    \x1b[7m▊\x1b[0m {player_display_location[13][0]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(3, 4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[37][0]} ▎")
-        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                                             {display_money(3)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
+        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                        {online_name(3)} {display_money(3)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m Electric Co.   ▎                                                                     {money_change(3)} {display_money(3)}    \x1b[7m▊\x1b[0m ∖  ⁄ SUPER TAX ▎")
         print(f"    \x1b[7m▊\x1b[0m $150       |\\  ▎                                                                             {display_money(2, 3)}    \x1b[7m▊\x1b[0m- 💎 -     $100 ▎")
-        print(f"    \x1b[7m▊\x1b[0m          __| \\ ▎ {icon(7)}                                                                          {display_money(2)}    \x1b[7m▊\x1b[0m/¯¯¯¯\\{player_display_location[38][0]}▎")
+        print(f"    \x1b[7m▊\x1b[0m          __| \\ ▎ {icon(7)}                                                     {online_name(2)} {display_money(2)}    \x1b[7m▊\x1b[0m/¯¯¯¯\\{player_display_location[38][0]}▎")
         print(f"    \x1b[7m▊\x1b[0m{player_display_location[12][0]}\\ |¯¯ ▎                                                                     {money_change(2)} {display_money(2)}    \x1b[7m▊\x1b[0m (⁐⁐) |         ▎")   
         print(f"    \x1b[7m▊\x1b[0m           \\|   ▎                                                                             {display_money(1, 2)}    \x1b[7m▊\x1b[0m\\____/\x1b[0m          ▎")
-        print(f"    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;245;47;171m▔▔▔▔\x1b[0m▎                                                                             {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
+        print(f"    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;245;47;171m▔▔▔▔\x1b[0m▎                                                        {online_name(1)} {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
         print(f"    \x1b[7m▊\x1b[0m Pall Mall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                                     {money_change(1)} {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m   Mayfair  ▎")
         print(f"    \x1b[7m▊\x1b[0m {houses(6)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(6)}                                                                          {display_money(0, 1)} {icon(27)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(27)} ▎")
         print(f"    \x1b[7m▊\x1b[0m {player_display_location[11][0]} \x1b[48;2;245;47;171m    \x1b[0m▎    {icon(5)}         {icon(4)}                    {icon(3)}         {icon(2)}                    {icon(1)}                    {icon(0)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {player_display_location[39][0]} ▎")
@@ -3022,6 +3114,8 @@ class refresh_board_class(parent_class):
             print("    \"forcechancecard\"")
             print("    \"forcecccard\"")
             print("    \"displayvar\"")
+            print("    \"queuechance\"")
+            print("    \"queuecc\"")
             print("    \"arbitrarycode\"")
             print("    \"setbidqueue\"")
             print("    \"dumpsave\"")
@@ -3036,6 +3130,72 @@ class refresh_board_class(parent_class):
 
         for item in player.items():
             self.prev_cash[item[0] - 1] = item[1]["$$$"]
+
+        return
+        print("    ┌─────────────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────────────┐")
+        print("    │                 │          │\x1b[38;2;255;103;35m    ()    \x1b[0m│          │          │   $200 __│          │          │\x1b[94m    /\\    \x1b[0m│          │   GO TO JAIL!   │")
+        print("    │  FREE  PARKING  │          │\x1b[38;2;255;103;35m  /‾‾‾\\   \x1b[0m│          │          │_()_()_| /│          │          │\x1b[94m   /  \\   \x1b[0m│          │                 │")
+        print("    │                 │          │\x1b[38;2;20;186;237m  ‾‾/ /   \x1b[0m│          │          │\\  ____ _)│          │          │\x1b[94m__/_ \\ \\  \x1b[0m│          │   /¯¯¯¯\\        │")
+        print("    │      _____      │          │\x1b[38;2;20;186;237m  /‾ /    \x1b[0m│          │          │/__)  /_\\ │          │          │$150\x1b[94m| | | \x1b[0m│          │  | (¯¯)/¯¯¯¯\\   │")
+        print("    │     /[___]\\     │          │\x1b[38;2;245;77;201m / /‾  /\\ \x1b[0m│          │Trafalgar │          │Leicester │ Coventry │\x1b[94m‾|‾‾  / | \x1b[0m│          │   \\_¯¯| (¯¯) |  │")
+        print("    │    |_ (·) _|    │  Strand  │\x1b[38;2;245;77;201m \\ ‾--‾ / \x1b[0m│ Fleet St.│  Square  │Fenchurch │  Square  │  Street  │\x1b[94m  \\____/  \x1b[0m│Piccadilly│     \\/ \\_¯¯_/   │")
+        print("    │     U-----U     \x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          \x1b[48;2;130;29;30m│\x1b[0m\x1b[38;2;245;77;201m  ‾----‾  \x1b[0m\x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          │          \x1b[48;2;130;29;30m│\x1b[0m Station  \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[30m│\x1b[48;2;255;176;46m          \x1b[39m\x1b[48;2;134;94;29m│\x1b[0m Water    \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[48;2;134;94;29m│\x1b[0m      O   \\/     │")
+        print("    │                 \x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          \x1b[48;2;130;29;30m│\x1b[0m  CHANCE  \x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          │          \x1b[48;2;130;29;30m│\x1b[0m          \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[30m│\x1b[48;2;255;176;46m          \x1b[39m\x1b[48;2;134;94;29m│\x1b[0m    Works \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[48;2;134;94;29m│\x1b[0m       O O       │")
+        print("    ├─────────────\x1b[48;2;134;58;14m────\x1b[0m┼\x1b[48;2;130;29;30m──────────\x1b[0m┴──────────┴\x1b[48;2;130;29;30m──────────\x1b[0m┴\x1b[48;2;130;29;30m──────────\x1b[0m┴──────────┴\x1b[48;2;134;94;29m──────────\x1b[0m┴\x1b[48;2;134;94;29m──────────\x1b[0m┴──────────┴\x1b[48;2;134;94;29m──────────\x1b[0m┼\x1b[48;2;6;111;59m────\x1b[0m─────────────┤")
+        print("    │ Vine Street \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m Regent St.  │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    ├─────────────\x1b[48;2;255;103;35m────\x1b[0m┤                                                                                                  ├\x1b[48;2;0;210;106m────\x1b[0m─────────────┤")
+        print("    │ Marlborough \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m Oxford St.  │")
+        print("    │ Street      \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    ├───\x1b[33m┌┐\x1b[0m────────\x1b[48;2;134;58;14m────\x1b[0m┤                                                                                                  ├\x1b[48;2;6;111;59m────\x1b[0m────────\x1b[33m┌┐\x1b[0m───┤")
+        print("    │/‾⁐\x1b[33m││\x1b[0m‾‾|COMMUNITY│                                                                                                  │COMMUNITY/‾⁐\x1b[33m││\x1b[0m‾‾|│")
+        print("    │\\__\x1b[33m││\x1b[0m‾‾    CHEST │                                                                                                  │ CHEST   \\__\x1b[33m││\x1b[0m‾‾ │")
+        print("    │ __\x1b[33m││\x1b[0m⁐‾\\         │                                                                                                  │          __\x1b[33m││\x1b[0m⁐‾\\│")
+        print("    │|__\x1b[33m││\x1b[0m__/         │                                                                                                  │         |__\x1b[33m││\x1b[0m__/│")
+        print("    ├───\x1b[33m└┘\x1b[0m────────\x1b[48;2;134;58;14m────\x1b[0m┤                                                                                                  ├\x1b[48;2;6;111;59m────\x1b[0m────────\x1b[33m└┘\x1b[0m───┤")
+        print("    │ Bow Street  \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m Bond St.    │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
+        print("    ├─────────────\x1b[48;2;134;58;14m────\x1b[0m┤                                                                                                  ├\x1b[48;2;6;111;59m────\x1b[0m─────────────┤")
+        print("    │ |\\⁔  Marylebone │                                                                                                  │ Liverpool |∖↙() │")
+        print("    │ ¯| |◁   Station │                                                                                                  │ Station   |‿ |  │")
+        print("    │ () |       $200 │                                                                                                  │ $200       | () │")
+        print("    │  | ⁀|           │                                                                                                  │           ▷|‿|_ │")
+        print("    ├─()↗∖|───────\x1b[48;2;129;30;92m────\x1b[0m┤                                                                                                  ├──────────────\\|─┤")
+        print("    │ Northumb'nd \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m    __\x1b[0m    CHANCE │")
+        print("    │ Avenue      \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m  /‾  ‾\x1b[38;2;20;186;237m\\  \x1b[38;2;255;103;35m┌─┐    \x1b[0m│")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m | (‾‾\x1b[38;2;20;186;237m\\ \\_\x1b[38;2;255;103;35m/ | () \x1b[0m│")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m  \\_\\\x1b[38;2;20;186;237m  \\__\x1b[38;2;255;103;35m_/     \x1b[0m│")
+        print("    ├─────────────\x1b[48;2;245;47;171m────\x1b[0m┤                                                                                                  ├\x1b[48;2;20;51;134m────\x1b[0m─────────────┤")
+        print("    │ Whitehall   \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m Park Lane   │")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")    
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
+        print("    ├─────────────\x1b[48;2;129;30;92m────\x1b[0m┤                                                                                                  ├\x1b[48;2;20;51;134m────\x1b[0m────────∖──⁄─┤")
+        print("    │ Electric Co. │╲ │                                                                                                  │ SUPER TAX - 💎 -│") # ∖  ⁄
+        print("    │ $150       __╵ ╲│                                                                                                  │ $100      /¯¯¯¯\\│")
+        print("    │            ╲ ╷¯¯│                                                                                                  │          | (⁐⁐) |")
+        print("    │             ╲│  │                                                                                                  │           \\____/│")
+        print("    ├─────────────\x1b[48;2;129;30;92m────\x1b[0m┤                                                                                                  ├\x1b[48;2;20;51;134m────\x1b[0m─────────────┤")
+        print("    │ Pall Mall   \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m Mayfair     │")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
+        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
+        print("    ├───────┬─╥─╥─\x1b[48;2;129;30;92m╥─╥─\x1b[0m┼\x1b[48;2;6;89;125m──────────\x1b[0m┬\x1b[48;2;6;89;125m──────────\x1b[0m┬──────────┬\x1b[48;2;6;89;125m──────────\x1b[0m┬──────────┬──────────┬\x1b[48;2;89;59;48m──────────\x1b[0m┬──────────┬\x1b[48;2;89;59;48m──────────\x1b[0m┼\x1b[48;2;20;51;134m────\x1b[0m─────────────┤")
+        print("    │       │ ║ ║ ║ ║ \x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          │          \x1b[48;2;6;89;125m│\x1b[0m  CHANCE  \x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          \x1b[48;2;6;89;125m│\x1b[0m  King's  │INCOME TAX\x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0mCOMMUNITY \x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0m  ____     ____  │")
+        print("    │   J   │ J A I L \x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          │          \x1b[48;2;6;89;125m│\x1b[0m\x1b[38;2;245;77;201m  _----_  \x1b[0m\x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          \x1b[48;2;6;89;125m│\x1b[0m  Cross   │          \x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0m     CHEST\x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0m /  __|   /    \\ │")
+        print("    │   U   │ ║ ║ ║ ║ │Pent'ville│  Euston  │\x1b[38;2;245;77;201m / _--_ \\ \x1b[0m│The Angel │          │          │whitechp'l│  __\x1b[33m┌┐\x1b[0m__  │ Old Kent \x1b[0m│|  |_ ‾| |  ()  |│")
+        print("    │   S   │ ║ ║ ║ ║ │   Road   │   Road   │\x1b[38;2;245;77;201m \\/  _/ / \x1b[0m│Islington │ \\¯/___(¯/│    :(    │   Road   │ / _\x1b[33m││\x1b[0m__| │   Road   │ \\____/   \\____/ │")
+        print("    │   T   └─╨─╨─╨─╨─┤          │          │\x1b[38;2;20;186;237m    / _/  \x1b[0m│          │( _______\\│          │          │ \\__\x1b[33m││\x1b[0m__  │          \x1b[0m│                 │")
+        print("    │                 │          │          │\x1b[38;2;20;186;237m   / /__  \x1b[0m│          │/_| () () │          │          │  __\x1b[33m││\x1b[0m_ \\ │          │   ╷       ____  │")
+        print("    │    VISITING     │          │          │\x1b[38;2;255;103;35m   \\___/  \x1b[0m│          │          │          │          │ |__\x1b[33m││\x1b[0m__/ │          │  ╱└──────/   /  │")
+        print("    │                 │          │          │\x1b[38;2;255;103;35m    ()    \x1b[0m│          │          │ PAY $200 │          │    \x1b[33m└┘\x1b[0m    │          │  ╲┌──────\\___\\  │")
+        print("    └─────────────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴───╵─────────────┘")
 
     def input_management(self, user_input):
         global dev_mode
@@ -3065,6 +3225,10 @@ class refresh_board_class(parent_class):
         elif self.action == "save notice":
             self.action = None
             homescreen()
+
+        elif self.action == "kick user" and user_input in ["c", "C"]:
+            self.action = None
+            self()
 
         elif self.action == "kick user":
             for item in online_config.joined_clients:
@@ -3136,6 +3300,10 @@ class refresh_board_class(parent_class):
                 print("\n    === roll dice first and complete space-dependent action first ===\n\n    ", end = "")
                 
         elif user_input in ["s", "S"]:
+            if online_config.game_strt_event.is_set():
+                print("\n    === are we deadass? ===\n\n    ", end="")
+                return
+
             global players_playing
             global house_total
             global hotel_total
@@ -3203,10 +3371,16 @@ class refresh_board_class(parent_class):
                 for _prop in colour_set: _prop["upgrade state"] = 2
 
             self.action = None
+
+            if online_config.game_strt_event.is_set():
+                send_data(f"propertyupdate:{prop_from_pos[player[player_turn]['pos']]}:{online_config.player_num}:{_prop['upgrade state']}")
+
             refresh_board()
 
         elif user_input in ["a", "A"] and self.action == "property":
             auctioned_property = prop_from_pos[player[player_turn]["pos"]]
+            if online_config.game_strt_event.is_set():
+                send_data(f"auctionstart:{auctioned_property}")
             display_property(auctioned_property, bid = True)
 
         elif user_input in ["g", "G"] and player[player_turn]["status"] == "jail":
@@ -3228,7 +3402,7 @@ class refresh_board_class(parent_class):
         elif user_input in ["k", "K"] and online_config.game_strt_event.is_set() \
                 and online_config.socket_type == "host":
             self.action = "kick user"
-            print("\n    === enter ID of player you wish to kick ===\n")
+            print("\n    === enter ID of player you wish to kick ([C]ancel) ===\n")
 
             for item in online_config.joined_clients:
                 print(f"    [{item[3]}] {item[0]}")
@@ -3238,8 +3412,12 @@ class refresh_board_class(parent_class):
             dev_mode = True
             refresh_board()
 
+        elif dev_mode == False:
+            print("\n    === command not recognised ===\n\n    ", end = "")
+
+        # devmode commands
         # certainly all of these input()s won't cause online issues
-        elif user_input == "setplayerpos" and dev_mode == True:
+        elif user_input == "setplayerpos":
             x = input("    === which player: ")
             xx = input("    === set pos: ")
             player[int(x)]["last pos"] = player[int(x)]["pos"]
@@ -3250,20 +3428,20 @@ class refresh_board_class(parent_class):
             refresh_board()
             player_action(int(x))
 
-        elif user_input == "showplayerdict" and dev_mode == True:
+        elif user_input == "showplayerdict":
             for i in player:
                 print(f"{i}: {player[i]}")
 
-        elif user_input == "setdiceroll" and dev_mode == True:
+        elif user_input == "setdiceroll":
             player_action.dice_value[1] = int(input("    === first dice value: "))
             player_action.dice_value[2] = int(input("    === second dice value: "))
             player_action.move()
            
-        elif user_input == "bankruptcy" and dev_mode == True:
+        elif user_input == "bankruptcy":
             x = input("    === which player: ")
             player_is_broke(int(x))
 
-        elif user_input ==  "editplayerdict" and dev_mode == True:
+        elif user_input ==  "editplayerdict":
             print("    === Please edit position using the 'setplayerpos' command ===")
             x = input("    === which player: ")
             xx = input("    === which key: ")
@@ -3271,7 +3449,7 @@ class refresh_board_class(parent_class):
             try   : player[int(x)][xx] = int(xxx)
             except ValueError: player[int(x)][xx] = xxx
 
-        elif user_input == "propertybid" and dev_mode == True:
+        elif user_input == "propertybid":
             auctioned_property = int(input("    === enter property number: "))
 
             # since bidding will require 'player_turn' to change, this stores the proper player turn
@@ -3279,16 +3457,16 @@ class refresh_board_class(parent_class):
             display_property.action = "auction"
             display_property(auctioned_property)
 
-        elif user_input == "showproplist" and dev_mode == True:
+        elif user_input == "showproplist":
             for i in property_data:
                 print(i)
 
-        elif user_input == "showchangedprops" and dev_mode == True:
+        elif user_input == "showchangedprops":
             for i in property_data:
                 if i["owner"] != None:
                     print(i)
 
-        elif user_input == "setplayerprops" and dev_mode == True:
+        elif user_input == "setplayerprops":
             x = int(input("    === what player: "))
             xx = input("    === what property (commands: 'all', 'done'): ")
             while xx != "done":
@@ -3322,7 +3500,7 @@ class refresh_board_class(parent_class):
                     xx = input("    === what property (commands: 'all', 'done'): ") 
             refresh_board()
 
-        elif user_input == "forcechancecard" and dev_mode == True:
+        elif user_input == "forcechancecard":
             x = int(input("    === what player: "))
             xx = input("    === what card value: ")
             if len(xx) == 1: xx = xx + " "
@@ -3333,7 +3511,7 @@ class refresh_board_class(parent_class):
 
             chance.perform_action()
 
-        elif user_input == "forcecccard" and dev_mode == True:
+        elif user_input == "forcecccard":
             x = int(input("    === what player: "))
             xx = input("    === what card value: ")
 
@@ -3345,22 +3523,27 @@ class refresh_board_class(parent_class):
 
             chance.perform_action()
 
-        elif user_input == "displayvar" and dev_mode == True:
+        elif user_input == "displayvar":
             x = input("enter var:")
             if x in globals():
                 print(globals()[x])
             else:
                 print("    === variable not found ===\n\n    ", end = "")
 
-        elif user_input == "queuechance" and dev_mode == True:
+        elif user_input == "queuechance":
             card = int(input("    === enter num: "))
             chance.values.remove(card)
             chance.values.insert(chance.index + 1, card)
 
-        elif user_input == "arbitrarycode" and dev_mode == True:
+        elif user_input == "queuecc":
+            card = int(input("    === enter num: "))
+            community_chest.values.remove(card)
+            community_chest.values.insert(community_chest.index + 1, card)
+
+        elif user_input == "arbitrarycode":
             exec(input())
 
-        elif user_input == "setbidqueue" and dev_mode == True:
+        elif user_input == "setbidqueue":
             u_input = ''
             queue = []
             while u_input != "done":
@@ -3372,7 +3555,7 @@ class refresh_board_class(parent_class):
             input(f"confirm: {queue}")
             display_property(*queue, bid = True)
 
-        elif user_input == "dumpsave" and dev_mode == True:
+        elif user_input == "dumpsave":
             try:
                 save = open("save_file.james", encoding = "utf-8")
             except:
@@ -3383,6 +3566,7 @@ class refresh_board_class(parent_class):
                 print("===")
 
                 save.close()
+
         else:
             print("\n    === command not recognised ===\n\n    ", end = "")
 
@@ -3540,9 +3724,6 @@ class new_game_select_class(parent_class):
                     "hotel total": 0,
                     "total properties": 0,
                     "status": "playing",
-
-                    # separate to the game version for online games
-                    "version": game_version
                 }
 
             self()
@@ -3713,11 +3894,9 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank" or "disconnecte
         print("\n    ", end = "")
 
         if online_config.game_strt_event.is_set():
-            raise exit_async
-        return
+            online_config.quit_async()
 
-    # finds next competing player
-    next(player_turn)
+    # finds next competing player, if player turn is bankrupt player
     while player[player_turn]["status"] in ("bankrupt", "disconnected"):
         next(player_turn)
 
@@ -3735,7 +3914,7 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank" or "disconnecte
     # player_is_broke passes on None as cause
     if cause == None: cause = "bank"
 
-    # if the player is in debt to the bank, 
+    # if the player is in debt to the bank,
     # all properties are returned then auctioned
     if cause == "bank":
         auction_queue = []
@@ -3751,7 +3930,17 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank" or "disconnecte
 
         # auctions properties if any exist
         if len(auction_queue) > 0:
-            display_property(*auction_queue, bid = True)
+             
+            # when online, a bid could be called while one is already happening,
+            # in that case the properties are just added on
+            if online_config.game_strt_event.is_set() and display_property.action == "auction":
+                display_property.property_queue.extend(auction_queue)
+                display_property(*display_property.property_queue, bid = True)
+            
+            elif online_config.game_strt_event.is_set() and trade_screen.is_trade:
+                pass
+            else:
+                display_property(*auction_queue, bid = True)
         else:
             refresh_board()
 
@@ -3766,7 +3955,7 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank" or "disconnecte
 
             _property["owner"] = owed_player
             upgrades = _property["upgrade state"] - 2
-            
+             
             # houses are sold back to bank for half price
             if upgrades > 0:
                 player[owed_player]["$$$"] += upgrades * (_property["house cost"] / 2)
@@ -3779,6 +3968,16 @@ def bankruptcy(_player: int | None = player_turn, cause = "bank" or "disconnecte
         # transfers any escape jail cards to the other player
         player[owed_player]["jail passes"] += player[_player]["jail passes"]
         player[owed_player]["$$$"] += player[_player]["$$$"]
+
+        # makes sure players are aware of changes
+        if online_config.game_strt_event.is_set() and owed_player == online_config.player_num:
+            print("=== you gained the properties of the bankrupt player! ===\n\n    ", end="")
+        else:
+            print(f"=== player {cause} gained the properties of the bankrupt player ===\n\n    ", end="")
+
+    if online_config.game_strt_event.is_set():
+        send_data(f"varupdate:house_total:{house_total}")
+        send_data(f"varupdate:hotel_total:{hotel_total}")
 
 
 class player_action_class(parent_class):
@@ -3828,6 +4027,9 @@ class player_action_class(parent_class):
             print()
             print(f"    === {chance.draw_card()} ===\n\n    ", end="")
 
+            if online_config.game_strt_event.is_set():
+                send_data("carddrawn:chance")
+
         elif player[_player]["pos"] in [2, 17, 33]:
             refresh_board.action = "community chest notice"
 
@@ -3836,6 +4038,9 @@ class player_action_class(parent_class):
             print(f"    {community_chest.art[2]}")
             print()
             print(f"    === {community_chest.draw_card()} ===\n\n    ", end="")
+
+            if online_config.game_strt_event.is_set():
+                send_data("carddrawn:cc")
 
         # income & super tax
         elif player[_player]["pos"] == 4:
@@ -4116,14 +4321,6 @@ class player_action_class(parent_class):
 player_action = player_action_class()
 
 
-def run():
-    """main entry point to start monopoly program"""
-    homescreen()
-    while True:
-        try: globals()[current_screen].input_management(input())
-        except KeyboardInterrupt: pass # stupid keyboard interrupts
-
-
 async def get_input():
     """gets user input (nonblocking) and executes appropriate logic"""
     loop = asyncio.get_running_loop()
@@ -4133,97 +4330,147 @@ async def get_input():
         globals()[current_screen].input_management(u_input)
 
 
+def send_data(data: str):
+    """sends message to correct socket. appends ID to end of message
+    format: type : arg1 : arg2 : arg3 ... : senderID %
+
+    start with whisper:[target]: to send message to specific player
+    """
+
+    #data = sanitise(data)
+
+    if online_config.socket_type == "host":
+        if data.startswith("whisper"):
+            parts = data.split(":")
+            msg = data.removeprefix(f"whisper:{parts[1]}:").encode()
+            online_config.joined_clients[int(parts[1])].sendall(f"{msg}:1%")
+            return
+
+        for item in online_config.joined_clients:
+            item[1].sendall(f"{data}:{online_config.player_num}%".encode())
+
+    elif online_config.socket_type == "client":
+        online_config.socket.sendall(f"{data}:{online_config.player_num}%".encode())
+
 async def get_data():
     """gets data sent from other players in an online game"""
     global player
     global player_turn
     global players_playing
 
+    def action(arg: str):
+        """online commands that don't differ between client and host"""
+
+        global property_data
+
+        match arg:
+            case "turnfinished":
+                _, player_change, money_change, _ = online_input.split(":")
+                money_change = eval(money_change)
+                
+                for i in range(players_playing):
+                    player[i + 1]["$$$"] = money_change[i]
+                
+                # ensures player is sent to jail across all devices
+                if player_change == 40:
+                    player_action.send_to_jail()
+                else:
+                    player[player_turn]["last pos"] = player[player_turn]["pos"]
+                    player[player_turn]["pos"] = int(player_change)
+
+                    update_player_position(player[player_turn]["pos"])
+                    update_player_position(player[player_turn]["last pos"], "remove")
+
+                refresh_board.end_turn_logic()
+
+                if current_screen == refresh_board:
+                    refresh_board()
+                elif online_config.player_num == player_turn:
+                    print("\n    === it's now your turn to roll ===\n\n    ", end="")
+            
+            case "varupdate":
+                _, var, value, _ = online_input.split(":")
+                globals().update({var: eval(value)})
+
+            case "propertyupdate":
+                _, prop, owner, upgrades, _ = online_input.split(":")
+                prop = int(prop)
+                property_data[prop]["owner"] = int(owner)
+                property_data[prop]["upgrade state"] = int(upgrades)
+                colour_set = []
+
+                # ensures colour set values are properly updated
+                for check_prop in property_data:
+                    if not ("colour set" in property_data[prop].keys() and "colour set" in check_prop.keys()):
+                        continue
+
+                    if property_data[prop]["colour set"] == check_prop["colour set"] and property_data[prop]["owner"] == check_prop["owner"]:
+                        colour_set.append(prop)
+                         
+                # brown and dark blue (sets 0 and 7) only have two properties in their set
+                if (len(colour_set) == 3 and property_data[prop]["colour set"] not in [0, 7]) \
+                    or (len(colour_set) == 2 and property_data[prop]["colour set"] in [0, 7]):
+
+                    for _prop in colour_set: property_data[_prop]["upgrade state"] = 2
+
+            case "carddrawn":
+                _, card, _ = online_input.split(":")
+                if card == "cc": community_chest.draw_card()
+                else: chance.draw_card()
+
+            case "auctionstart":
+                pass
+
+            case _:
+                input(f"{online_input=}")
+   
     loop = asyncio.get_running_loop()
+    message_queue = []
 
     if online_config.socket_type == "host":
         while not online_config.stop_event.is_set():
             for item in online_config.joined_clients:
                 try:
-                    online_input = await loop.run_in_executor(None, item[1].recv, 1024)
-                    online_input = online_input.decode()
+                    if message_queue:
+                        online_input = message_queue.pop(0)
+                    else:
+                        online_input = await loop.run_in_executor(None, item[1].recv, 1024)
+                        online_input = online_input.decode()
+
                 except (UnicodeDecodeError, BlockingIOError):
                     continue
                 
                 except (ConnectionError, ConnectionAbortedError, ConnectionResetError, ConnectionRefusedError):
+                    online_config.handle_client_quit(item[3])
+                    continue
 
-                    # host alerts other clients that this client has lost communication
-                    for sub_item in online_config.joined_clients:
-                        if sub_item != item:
-                            sub_item[1].sendall(f"clientquit:{item[3]}".encode())
-                    
-                    globals()[current_screen].disconnect_management(item[3])
+                except OSError:
+                    return
 
-                except Exception as e:
-                    input(f"{e=}")
+                # sometimes, multiple messages get merged into one
+                # this splits them and handles each separately
+                online_input = online_input.removesuffix("%")
+                message_queue.extend(online_input.split("%"))
+                online_input = message_queue.pop(0)
+
+                if online_input.startswith("whisper"):
+                    parts = online_input.split(":")
+                    msg = online_input.removeprefix(f"whisper:{parts[1]}:").encode()
+                    online_config.joined_clients[int(parts[1])].sendall(f"{msg}:{item[0]}%")
+                    return
 
                 # ensures all clients except sender receive message
                 for sub_item in online_config.joined_clients:
                     if sub_item != item:
-                        sub_item[1].sendall(f"{online_input}:{item[2]}".encode())
+                        sub_item[1].sendall(f"{online_input}%".encode())
 
-                if online_input.startswith("clientquit"):
-                    # host alerts other clients that this client has lost communication
-                    for sub_item in online_config.joined_clients:
-                        if sub_item != item:
-                            sub_item[1].sendall(f"clientquit:{item[3]}".encode())
+                # a blank message signals the client has lost connection
+                if online_input == "":
+                    online_config.handle_client_quit(item[3])
+                    continue
 
-                    globals()[current_screen].disconnect_management(item[3])
-
-                elif online_input.startswith("turnfinshed"):
-                    refresh_board.end_turn_logic()
-               
-
-                elif online_input.startswith("turnfinished:"):
-                    _, player_change, money_change, _ = online_input.split(":")
-                    money_change = eval(money_change)
-                
-                    for i in range(players_playing):
-                        player[i + 1]["$$$"] = money_change[i]
-                
-                    # ensures player is sent to jail across all devices
-                    if player_change == 40:
-                        player_action.send_to_jail()
-                    else:
-                        player[player_turn]["last pos"] = player[player_turn]["pos"]
-                        player[player_turn]["pos"] = int(player_change)
-
-                        update_player_position(player[player_turn]["pos"])
-                        update_player_position(player[player_turn]["last pos"], "remove")
-
-                    refresh_board.end_turn_logic()
-
-                    if current_screen == refresh_board:
-                        refresh_board()
-                    elif online_config.player_num == player_turn and player_turn == online_config.player_num:
-                        print("\n    === it's now your turn to roll ===\n\n    ", end="")
-                elif online_input.startswith("ping"):
-                    send_data("ack")
-
-                    # position in clients list == position in ping list
-                    online_config.ping_count[online_config.joined_clients.index(item)] = 0
-
-                # resets timeout count to 0
-                elif online_input.startswith("ack"):
-                    online_config.ping_count[online_config.joined_clients.index(item)] = 0
-
-                elif online_input.startswith("varupdate:"):
-                    _, var, value = online_input.split(":")
-                    globals()[var] = eval(value)
-
-                elif online_input.startswith("carddrawn:"):
-                    _, card = online_input.split(":")
-                    if card == "cc": community_chest.draw_card()
-                    else: chance.draw_card()
-                elif online_input == '':
-                    return
                 else:
-                    input(f"{online_input=}")
+                    action(online_input.split(":")[0])
       
             # reduces computational strain
             await asyncio.sleep(1)
@@ -4231,10 +4478,11 @@ async def get_data():
     elif online_config.socket_type == "client":
         while not online_config.stop_event.is_set():
             try:
-                online_input = await loop.run_in_executor(None, online_config.socket.recv, 1024)
-                online_input = online_input.decode()
-                if online_config.stop_event.is_set():
-                    return
+                if message_queue:
+                    online_input = message_queue.pop(0)
+                else:
+                    online_input = await loop.run_in_executor(None, online_config.socket.recv, 1024)
+                    online_input = online_input.decode()
 
             except (ConnectionAbortedError, ConnectionResetError, ConnectionError, ConnectionRefusedError):
                 online_config.connection_lost()
@@ -4250,19 +4498,31 @@ async def get_data():
 
             # for debugging
             except Exception as e:
-                input(f"{e=}")
+                input(f"{e=} {old_input=}")
+
+            # sometimes, multiple messages get merged into one
+            # this splits them and handles each separately
+            message_queue.extend(online_input.split("%")[:-1])
+            old_input = online_input
+            online_input = message_queue.pop(0)
 
             if online_input.startswith("booted"):
                 online_config.kicked_notice()
                 return
 
-            elif online_input.startswith("users update:"):
+            elif online_input.startswith("users update"):
 
-                # this is not used for clients, so is re-purposed
-                _, client_list = online_input.split(":")
+                _, client_list, ID = online_input.split(":")
                 client_list = eval(client_list)
 
                 online_config.joined_clients = client_list
+                online_config.joined_clients[2] = [int(x) for x in online_config.joined_clients[2]] # insurance
+
+                # when a player leaves before the game starts,
+                # host sends users update, and recalculates IDs
+                # if a player is joining, IDs remain unchanged
+                online_config.player_num = int(ID)
+
                 online_config.client_wait_screen()
 
             elif online_input.startswith("clientquit:"):
@@ -4290,7 +4550,6 @@ async def get_data():
                     "hotel total": 0,
                     "total properties": 0,
                     "status": "playing",
-                    "version": game_version
                 }
 
                 player_turn = better_iter(range(1, players_playing + 1), True)
@@ -4298,64 +4557,16 @@ async def get_data():
                 online_config.game_strt_event.set()
                 display_game_notice()
 
-            elif online_input.startswith("turnfinished:"):
-                _, player_change, money_change, _ = online_input.split(":")
-                money_change = eval(money_change)
-                
-                for i in range(players_playing):
-                    player[i + 1]["$$$"] = money_change[i]
-                
-                # ensures player is sent to jail across all devices
-                if player_change == 40:
-                    player_action.send_to_jail()
-                else:
-                    player[player_turn]["last pos"] = player[player_turn]["pos"]
-                    player[player_turn]["pos"] = int(player_change)
+            elif online_input == "":
+                online_config.connection_lost()
+                return
 
-                    update_player_position(player[player_turn]["pos"])
-                    update_player_position(player[player_turn]["last pos"], "remove")
-
-                refresh_board.end_turn_logic()
-
-                if current_screen == refresh_board:
-                    refresh_board()
-                elif online_config.player_num == player_turn and player_turn == online_config.player_num:
-                    print("\n    === it's now your turn to roll ===\n\n    ", end="")
-            
-            elif online_input.startswith("varupdate:"):
-                _, var, value = online_input.split(":")
-                globals()[var] = eval(value)
-
-            elif online_input.startswith("carddrawn:"):
-                _, card = online_input.split(":")
-                if card == "cc": community_chest.draw_card()
-                else: chance.draw_card()
-
-            elif online_input.startswith("ping"):
-                send_data("ack")
-                online_config.ping_count = 0
-
-            # resets timeout count to 0
-            elif online_input.startswith("ack"):
-                    online_config.ping_count = 0  
             else:
-                # I know this is blocking, but it should ensure
-                # that logic errors are visible for debugging
-                input(f"{online_input=}")
+                action(online_input.split(":")[0])
             
             await asyncio.sleep(1)
 
-
-def send_data(data: str):
-    """sends message to correct socket. appends ID to end of message"""
-    if online_config.socket_type == "host":
-        for item in online_config.joined_clients:
-            item[1].sendall(f"{data}:{online_config.player_num}".encode())
-
-    elif online_config.socket_type == "client":
-        online_config.socket.sendall(f"{data}:{online_config.player_num}".encode())
-
-# perhaps I should start all others with trailing 
-# underscores so this is the only accessible function
-if __name__ == "__main__":
-    run()
+homescreen()
+while True:
+    try: globals()[current_screen].input_management(input())
+    except KeyboardInterrupt: pass # stupid keyboard interrupts
