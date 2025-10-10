@@ -23,7 +23,11 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="cards.py" />
+    <Compile Include="game.py" />
     <Compile Include="main.py" />
+    <Compile Include="utils.py" />
+    <Compile Include="state.py" />
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="Global|PythonCore|3.13" />

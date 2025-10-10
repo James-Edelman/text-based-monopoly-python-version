@@ -1,5 +1,20 @@
 ﻿"""functions to start/operate online games, and communicate between players"""
 
+from socket import socket, gethostname, gethostbyname, AF_INET, SOCK_STREAM
+from os import system, name, getpid
+import asyncio
+from better_iterator import better_iter
+from unicodedata import east_asian_width as width
+
+import utils
+from utils import sleep, update_player_position, create_button_prompts, clear_screen
+import state
+
+__required__ = ["game.bankruptcy"]
+
+bankruptcy = None
+
+
 def sanitise(message: str, characters = {"%": "#", ":": "$"}):
     """replaces desired characters using dictionary (key becomes value)
     ensure multiple characters are not replaced with the same one"""
@@ -11,6 +26,7 @@ def sanitise(message: str, characters = {"%": "#", ":": "$"}):
         message = message.replace(item[0], "\\" + item[1])
 
     return message
+
 
 def unsanitise(message: str, characters = {"%": "#", ":": "$"}):
     """converts sanitised string back to original 
@@ -39,6 +55,7 @@ def unsanitise(message: str, characters = {"%": "#", ":": "$"}):
     restored = ''.join(restored)
     return restored
 
+
 def send_data(data: str):
     """sends message to correct socket. appends ID to end of message
     format: type : arg1 : arg2 : arg3 ... : senderID %
@@ -48,53 +65,49 @@ def send_data(data: str):
 
     data = sanitise(data)
 
-    if online_config.socket_type == "host":
+    if state.online_config.socket_type == "host":
         if data.startswith("whisper"):
             parts = data.split(":")
             msg = data.removeprefix(f"whisper:{parts[1]}:").encode()
-            online_config.joined_clients[int(parts[1])].sendall(f"{msg}:1%")
+            state.online_config.joined_clients[int(parts[1])].sendall(f"{msg}:1%")
             return
 
-        for item in online_config.joined_clients:
-            item[1].sendall(f"{data}:{online_config.player_num}%".encode())
+        for item in state.online_config.joined_clients:
+            item[1].sendall(f"{data}:{state.online_config.player_num}%".encode())
 
-    elif online_config.socket_type == "client":
-        online_config.socket.sendall(f"{data}:{online_config.player_num}%".encode())
+    elif state.online_config.socket_type == "client":
+        state.online_config.socket.sendall(f"{data}:{state.online_config.player_num}%".encode())
 
-async def get_data():
+
+async def receive_data():
     """gets data sent from other players in an online game"""
-    global player
-    global player_turn
-    global players_playing
 
     def action(arg: str):
         """online commands that don't differ between client and host"""
-
-        global property_data
 
         match arg:
             case "turnfinished":
                 _, player_change, money_change, _ = online_input.split(":")
                 money_change = eval(money_change)
                 
-                for i in range(players_playing):
-                    player[i + 1]["$$$"] = money_change[i]
+                for i in range(state.players_playing):
+                    state.player[i + 1]["$$$"] = money_change[i]
                 
                 # ensures player is sent to jail across all devices
                 if player_change == 40:
-                    player_action.send_to_jail()
+                    state.player_action.send_to_jail()
                 else:
-                    player[player_turn]["last pos"] = player[player_turn]["pos"]
-                    player[player_turn]["pos"] = int(player_change)
+                    state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
+                    state.player[state.player_turn]["pos"] = int(player_change)
 
-                    update_player_position(player[player_turn]["pos"])
-                    update_player_position(player[player_turn]["last pos"], "remove")
+                    update_player_position(state.player[state.player_turn]["pos"])
+                    update_player_position(state.player[state.player_turn]["last pos"], "remove")
 
-                refresh_board.end_turn_logic()
+                state.refresh_board.end_turn_logic()
 
-                if current_screen == refresh_board:
-                    refresh_board()
-                elif online_config.player_num == player_turn:
+                if state.current_screen == state.refresh_board:
+                    state.refresh_board()
+                elif state.online_config.player_num == state.player_turn:
                     print("\n    === it's now your turn to roll ===\n\n    ", end="")
             
             case "varupdate":
@@ -104,28 +117,28 @@ async def get_data():
             case "propertyupdate":
                 _, prop, owner, upgrades, _ = online_input.split(":")
                 prop = int(prop)
-                property_data[prop]["owner"] = int(owner)
-                property_data[prop]["upgrade state"] = int(upgrades)
+                state.property_data[prop]["owner"] = int(owner)
+                state.property_data[prop]["upgrade state"] = int(upgrades)
                 colour_set = []
 
                 # ensures colour set values are properly updated
-                for check_prop in property_data:
-                    if not ("colour set" in property_data[prop].keys() and "colour set" in check_prop.keys()):
+                for check_prop in state.property_data:
+                    if not ("colour set" in state.players_playing[prop].keys() and "colour set" in check_prop.keys()):
                         continue
 
-                    if property_data[prop]["colour set"] == check_prop["colour set"] and property_data[prop]["owner"] == check_prop["owner"]:
+                    if state.players_playing[prop]["colour set"] == check_prop["colour set"] and state.players_playing[prop]["owner"] == check_prop["owner"]:
                         colour_set.append(prop)
                          
                 # brown and dark blue (sets 0 and 7) only have two properties in their set
-                if (len(colour_set) == 3 and property_data[prop]["colour set"] not in [0, 7]) \
-                    or (len(colour_set) == 2 and property_data[prop]["colour set"] in [0, 7]):
+                if (len(colour_set) == 3 and state.property_data[prop]["colour set"] not in [0, 7]) \
+                    or (len(colour_set) == 2 and state.property_data[prop]["colour set"] in [0, 7]):
 
-                    for _prop in colour_set: property_data[_prop]["upgrade state"] = 2
+                    for _prop in colour_set: state.players_playing[_prop]["upgrade state"] = 2
 
             case "carddrawn":
                 _, card, _ = online_input.split(":")
-                if card == "cc": community_chest.draw_card()
-                else: chance.draw_card()
+                if card == "cc": state.community_chest.draw_card()
+                else: state.chance.draw_card()
 
             case "auctionstart":
                 pass
@@ -136,9 +149,9 @@ async def get_data():
     loop = asyncio.get_running_loop()
     message_queue = []
 
-    if online_config.socket_type == "host":
-        while not online_config.stop_event.is_set():
-            for item in online_config.joined_clients:
+    if state.online_config.socket_type == "host":
+        while not state.online_config.stop_event.is_set():
+            for item in state.online_config.joined_clients:
                 try:
                     if message_queue:
                         online_input = message_queue.pop(0)
@@ -150,7 +163,7 @@ async def get_data():
                     continue
                 
                 except (ConnectionError, ConnectionAbortedError, ConnectionResetError, ConnectionRefusedError):
-                    online_config.handle_client_quit(item[3])
+                    state.online_config.handle_client_quit(item[3])
                     continue
 
                 except OSError:
@@ -165,17 +178,17 @@ async def get_data():
                 if online_input.startswith("whisper"):
                     parts = online_input.split(":")
                     msg = online_input.removeprefix(f"whisper:{parts[1]}:").encode()
-                    online_config.joined_clients[int(parts[1])].sendall(f"{msg}:{item[0]}%")
+                    state.online_config.joined_clients[int(parts[1])].sendall(f"{msg}:{item[0]}%")
                     return
 
                 # ensures all clients except sender receive message
-                for sub_item in online_config.joined_clients:
+                for sub_item in state.online_config.joined_clients:
                     if sub_item != item:
                         sub_item[1].sendall(f"{online_input}%".encode())
 
                 # a blank message signals the client has lost connection
                 if online_input == "":
-                    online_config.handle_client_quit(item[3])
+                    state.online_config.handle_client_quit(item[3])
                     continue
 
                 else:
@@ -184,17 +197,17 @@ async def get_data():
             # reduces computational strain
             await asyncio.sleep(1)
 
-    elif online_config.socket_type == "client":
-        while not online_config.stop_event.is_set():
+    elif state.online_config.socket_type == "client":
+        while not state.online_config.stop_event.is_set():
             try:
                 if message_queue:
                     online_input = message_queue.pop(0)
                 else:
-                    online_input = await loop.run_in_executor(None, online_config.socket.recv, 1024)
+                    online_input = await loop.run_in_executor(None, state.online_config.socket.recv, 1024)
                     online_input = online_input.decode()
 
             except (ConnectionAbortedError, ConnectionResetError, ConnectionError, ConnectionRefusedError):
-                online_config.connection_lost()
+                state.online_config.connection_lost()
                 return
 
             # if user exits out, then message doesn't need to be shown
@@ -216,7 +229,7 @@ async def get_data():
             online_input = unsanitise(message_queue.pop(0))
 
             if online_input.startswith("booted"):
-                online_config.kicked_notice()
+                state.online_config.kicked_notice()
                 return
 
             elif online_input.startswith("users update"):
@@ -224,32 +237,32 @@ async def get_data():
                 _, client_list, ID = online_input.split(":")
                 client_list = eval(client_list)
 
-                online_config.joined_clients = client_list
-                online_config.joined_clients[2] = [int(x) for x in online_config.joined_clients[2]] # insurance
+                state.online_config.joined_clients = client_list
+                state.online_config.joined_clients[2] = [int(x) for x in state.online_config.joined_clients[2]] # insurance
 
                 # when a player leaves before the game starts,
                 # host sends users update, and recalculates IDs
                 # if a player is joining, IDs remain unchanged
-                online_config.player_num = int(ID)
+                state.online_config.player_num = int(ID)
 
-                online_config.client_wait_screen()
+                state.online_config.client_wait_screen()
 
             elif online_input.startswith("clientquit:"):
                 _, quitter = online_input.split(":")
 
-                if online_config.game_strt_event.is_set():
-                    player[quitter]["status"] = "disconnected"
+                if state.online_config.game_strt_event.is_set():
+                    state.player[quitter]["status"] = "disconnected"
 
-                globals()[current_screen].disconnect_management(quitter)
+                state.__dict__[state.current_screen].disconnect_management(quitter)
 
-            elif online_input.startswith("hoststart"):
-                player = {}
-                players_playing = len(online_config.joined_clients[0])
+            elif online_input.startsswith("hoststart"):
+                state.player = {}
+                state.players_playing = len(state.online_config.joined_clients[0])
 
                 # creates the players using the characters provided
-                for i in range(players_playing):
-                    player[i + 1] = {
-                    "char": online_config.joined_clients[1][i],
+                for i in range(state.players_playing):
+                    state.player[i + 1] = {
+                    "char": state.online_config.joined_clients[1][i],
                     "$$$": 1500,
                     "pos": 0,
                     "last pos": 0,
@@ -261,13 +274,13 @@ async def get_data():
                     "status": "playing",
                 }
 
-                player_turn = better_iter(range(1, players_playing + 1), True)
+                state.player_turn = better_iter(range(1, state.players_playing + 1), True)
                 update_player_position(0)
-                online_config.game_strt_event.set()
-                display_game_notice()
+                state.online_config.game_strt_event.set()
+                state.display_game_notice()
 
             elif online_input == "":
-                online_config.connection_lost()
+                state.online_config.connection_lost()
                 return
 
             else:
@@ -275,7 +288,31 @@ async def get_data():
             
             await asyncio.sleep(1)
 
-class online_config_class(parent_class):
+
+async def get_input():
+    """gets user input (nonblocking) and executes appropriate logic"""
+    loop = asyncio.get_running_loop()
+
+    while not state.online_config.stop_event.is_set():
+        u_input = await loop.run_in_executor(None, input)
+        state.__dict__[state.current_screen].input_management(u_input)
+
+
+type decorator = function
+def coro_protection(coro) -> decorator:
+    """decorator. suppresses CancelledError once coroutine canceled"""
+    async def sub(*args, **kwards):
+        try:
+            await coro(*args, **kwards)
+        except asyncio.CancelledError:
+            return
+
+
+    sub.__name__ = coro.__name__
+    return sub
+
+
+class online_config_class(utils.parent_class):
     """contains the menus and sockets for starting an online game
 
     as a client, .joined_clients is [[name, name], [icon, icon], [ID, ID]]
@@ -303,8 +340,7 @@ class online_config_class(parent_class):
         self.socket = socket(AF_INET, SOCK_STREAM)
 
     def __call__(self):
-        global current_screen
-        current_screen = self.__name__
+        state.current_screen = self.__name__
 
         self.action = "name 1"
         clear_screen()
@@ -325,8 +361,7 @@ class online_config_class(parent_class):
         """alerts user that connection to host was lost
         handles with closing the socket and exiting async"""
 
-        global current_screen
-        current_screen = self.__name__
+        state.current_screen = self.__name__
         self.action = "connection lost accept"
 
         clear_screen()
@@ -347,8 +382,7 @@ class online_config_class(parent_class):
         """alerts the user that they were removed by the host
         handles with closing the socket and exiting async"""
 
-        global current_screen
-        current_screen = self.__name__
+        state.current_screen = self.__name__
         self.action = "connection lost accept"
 
         clear_screen()
@@ -368,8 +402,7 @@ class online_config_class(parent_class):
 
     def wrong_version_notice(self):
         """alerts the user that they are not playing on the same version as host"""
-        global current_screen
-        current_screen = self.__name__
+        state.current_screen = self.__name__
         self.action = "connection lost accept"
 
         # ahhhhrgh I had to make this a bit wider to fit the link,
@@ -392,8 +425,7 @@ class online_config_class(parent_class):
 
     def host_wait_screen(self, connection_details: str | None = None):
         """the host's screen for displaying joined clients."""
-        global current_screen
-        current_screen = self.__name__
+        state.current_screen = self.__name__
         self.action = "host wait screen"
 
         if connection_details == None:
@@ -435,8 +467,7 @@ class online_config_class(parent_class):
         print("\x1b[u\x1b[0K", end="", flush=True)
 
     def client_wait_screen(self):
-        global current_screen
-        current_screen = self.__name__
+        state.current_screen = self.__name__
         self.action = "client wait screen"
 
         clear_screen()
@@ -535,7 +566,7 @@ class online_config_class(parent_class):
             client_version = float(client.recv(1024).decode())
 
             # host sends confirmation that both on same version
-            if client_version == game_version:
+            if client_version == state.game_version:
                 client.sendall("True".encode())
             else:
                 client.sendall("False".encode())
@@ -544,7 +575,7 @@ class online_config_class(parent_class):
             # client sends name immediately after connection
             name, icon = client.recv(1024).decode().split(":")
            
-            client.sendall(f"{len(self.joined_clients) + 2}:{chance.values}:{community_chest.values}".encode())
+            client.sendall(f"{len(self.joined_clients) + 2}:{state.chance.values}:{state.community_chest.values}".encode())
 
             client.setblocking(False)
             self.joined_clients.append([name, client, icon, len(self.joined_clients) + 2])
@@ -568,9 +599,6 @@ class online_config_class(parent_class):
             self.host_wait_screen()
 
     def input_management(self, user_input):
-        global player
-        global player_turn
-        global players_playing
         
         if user_input == "DISPLAY CLIENTS":
             print(self.joined_clients)
@@ -654,15 +682,15 @@ class online_config_class(parent_class):
                     return
 
                 send_data("hoststart")
-                player = {}
+                state.player = {}
 
                 icons = [self.display_icon]
                 for item in self.joined_clients:
                     icons.append(item[2])
 
                 # creates the players using the characters provided
-                for i in range(len(online_config.joined_clients) + 1):
-                    player[i + 1] = {
+                for i in range(len(state.online_config.joined_clients) + 1):
+                    state.player[i + 1] = {
                     "char": icons[i],
                     "$$$": 1500,
                     "pos": 0,
@@ -673,16 +701,15 @@ class online_config_class(parent_class):
                     "hotel total": 0,
                     "total properties": 0,
                     "status": "playing",
-                    "version": game_version
                 }
 
-                players_playing = len(self.joined_clients) + 1 # accounts for host
-                player_turn = better_iter(range(1, players_playing + 1), True)
+                state.players_playing = len(self.joined_clients) + 1 # accounts for host
+                state.player_turn = better_iter(range(1, state.players_playing + 1), True)
                 update_player_position(0)
 
                 # ensures users aren't accepted and logic functions properly
                 self.game_strt_event.set()
-                display_game_notice()
+                state.display_game_notice()
 
             elif user_input in ["k", "K"]:
                  print("\x1b[u\x1b[0K=== enter player name ([C]ancel): ", end="", flush=True)
@@ -722,7 +749,7 @@ class online_config_class(parent_class):
                     return
 
                 # protocol is for joined clients to ensure same version
-                self.socket.sendall(str(game_version).encode())
+                self.socket.sendall(str(state.game_version).encode())
 
                 same_ver = self.socket.recv(1024).decode()
 
@@ -748,17 +775,17 @@ class online_config_class(parent_class):
                         self.socket.sendall(str(num).encode())
                 """
                 
-                # ensures chance cards are consistent across games
+                # ensures state.chance cards are consistent across games
                 num, chance_order, cc_order = self.socket.recv(1024).decode().split(":")
                 self.player_num = int(num)
 
-                chance.values = eval(chance_order)
-                community_chest.values = eval(cc_order)
+                state.chance.values = eval(chance_order)
+                state.community_chest.values = eval(cc_order)
                 
                 # receives list of playing clients
                 _, client_list, _ = self.socket.recv(1024).decode().split(":")
-                online_config.joined_clients = eval(client_list.removesuffix("%"))
-                online_config.joined_clients[2] = [int(x) for x in online_config.joined_clients[2]]
+                state.online_config.joined_clients = eval(client_list.removesuffix("%"))
+                state.online_config.joined_clients[2] = [int(x) for x in state.online_config.joined_clients[2]]
 
                 # ensures that client screen commands are accessible
                 self.action_2 = None
@@ -832,7 +859,7 @@ class online_config_class(parent_class):
 
             elif user_input in ["b", "B"]:
                 self.game_strt_event.clear()
-                homescreen()
+                state.homescreen()
 
             else:
                 print("\n    === command not recognised ===\n\n    ", end="")
@@ -846,16 +873,16 @@ class online_config_class(parent_class):
 
             # removes the player from user's list of players
             # played ID is used as index to remove from all 3 sub-lists
-            for _list in online_config.joined_clients:
+            for _list in state.online_config.joined_clients:
                 del _list[quitter - 1]
 
             self.client_wait_screen()
 
         elif self.socket_type == "host":
             # removes the player from user's list of players
-            for client in online_config.joined_clients:
+            for client in state.online_config.joined_clients:
                 if quitter == client[3]:
-                    online_config.joined_clients.remove(client)
+                    state.online_config.joined_clients.remove(client)
                     break
 
             self.host_wait_screen()
@@ -871,7 +898,7 @@ class online_config_class(parent_class):
             for item in self.joined_clients:
                 item[1].close()
 
-        for task in online_config.running_tasks:
+        for task in state.online_config.running_tasks:
             task.cancel()"""
 
         if name == "nt":
@@ -882,14 +909,14 @@ class online_config_class(parent_class):
     def handle_client_quit(self, quitter: int):
         """as a host, determines how to handle a client quitting.
         sends appropriate updates to other clients"""
-        if online_config.game_strt_event.is_set():
+        if state.online_config.game_strt_event.is_set():
             
             # alerts other clients, removes
-            for item in online_config.joined_clients:
+            for item in state.online_config.joined_clients:
                 if item[3] != quitter:
                     item[1].sendall(f"clientquit:{quitter}%".encode())
 
-            globals()[current_screen].disconnect_management(quitter)
+            state.__dict__[state.current_screen].disconnect_management(quitter)
             bankruptcy(quitter, "disconnect")
 
         # otherwise, re-calculates player IDs if game hasn't started yet,
@@ -919,13 +946,10 @@ class online_config_class(parent_class):
 
     async def shell(self):
         """main entry point for asynchronous functions"""
-        if dev_mode:
+        if state.dev_mode:
             asyncio.get_running_loop().set_debug(True)
 
-        self.running_tasks = [asyncio.Task(get_input()), asyncio.Task(get_data()), asyncio.Task(self.get_users())]
+        self.running_tasks = [asyncio.Task(get_input()), asyncio.Task(receive_data()), asyncio.Task(self.get_users())]
         self.gather = asyncio.gather(*self.running_tasks)
 
         await self.gather
-
-
-online_config = online_config_class()

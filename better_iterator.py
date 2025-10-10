@@ -1,7 +1,7 @@
 ﻿"""contains a custom iterator, its previous() function, and a custom error"""
 
 # except statements catch index errors in case loop is enabled,
-# but it not, this is raised in lieu
+# but if not, this is raised in lieu
 class tripple_affirmative(IndexError):
     '''"Some said she never had a solution, she just died.
         And when the systems broke down an erroneous signal was sent."'''
