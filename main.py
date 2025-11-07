@@ -1,13 +1,13 @@
-﻿"""a game of monopoly playable in a text window"""
+﻿"""a game of monopoly playable in a terminal window"""
 
-from time import time # used to determine total play time, for sleep()
-from unicodedata import east_asian_width as width # used to determine if names is correct width
+from time import time # type: ignore # used to determine total play time, for sleep() type
+import wcwidth # used to determine if names is correct width
 from better_iterator import better_iter # used for the player turn
 
 import game
 import online
 import utils
-from utils import create_button_prompts, clear_screen, update_player_position
+from utils import create_prompts, clear_screen, update_player_position
 import cards
 import state
 
@@ -25,15 +25,15 @@ state.trade_screen = game.trade_screen_class()
 
 state.online_config = online.online_config_class()
 
-
 for module in [online, game, cards, utils]:
 
     # some modules don't require any functions
     if not "__required__" in module.__dict__.keys():
         continue
     for func in module.__required__:
-        if "." in func:
-            _, name = func.split(".")
+        if "." in func: _, name = func.split(".")
+        else: name = func
+
         module.__dict__.update({name: eval(func)})
 
 
@@ -51,15 +51,13 @@ class homescreen_class(utils.parent_class):
 
         state.current_screen = self.__name__
 
-        # ensures asynchronous online operations will work
-        state.online_config.stop_event.clear()
-
         print("")
         print(r"       ___  ___        _____     _____ ____     _____      _____      _____     ____     ___  ___"    )
         print(r"      ╱   ╲╱   ╲      ╱     ╲    │    ╲│  │    ╱     ╲    │  _  \    ╱     ╲    │  │     ╲  \/  ╱ │ coded by:")
         print(r"     ╱  /╲  ╱\  ╲    │  (_)  │   │  ╲  ╲  │   │  (_)  │   │  ___/   │  (_)  │   │  │__    ╲_  _╱  │ James E.")
         print(r"    ╱__/  ╲╱  \__╲    ╲_____╱    |__│╲____|    ╲_____╱    |__|       ╲_____╱    |_____|    |__|   │ 2024, 2025")
         print("")
+        print("    ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
         print("")
 
         # checks if a save file exists
@@ -68,10 +66,8 @@ class homescreen_class(utils.parent_class):
         except: pass
         else: x.close(); saved_game = True
         
-        for i in create_button_prompts(["Start game", "Continue", "Online", "Exit"], [True, saved_game, True, True]):
+        for i in create_prompts(["Start game", "Continue", "Online", "Exit"], [True, saved_game, True, True]):
             print(i)
-        print("")
-        print("    ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
         print("\n    ", end = "")
 
     def input_management(self, user_input):
@@ -86,7 +82,7 @@ class homescreen_class(utils.parent_class):
               utils.read_save("save_file.james", "utf-8") 
               state.display_game_notice()
 
-        elif user_input in ["o", "O"]:
+        elif user_input in ["o", "O"]: # ['l', 'L']
             state.online_config()
 
         elif "nick" in user_input.lower():
@@ -97,7 +93,7 @@ class homescreen_class(utils.parent_class):
             self()
 
             print("=== Nick Tho always uses night-shift on maximum intensity, I'm not trying to be racist ===\n")
-            for i in create_button_prompts(["I'm offended", "Makes sense"]): print(i)
+            for i in create_prompts(["I'm offended", "Makes sense"]): print(i)
             print("\n    ", end = "")
             self.action = "nicktho"
 
@@ -133,14 +129,17 @@ class display_game_notice_class(utils.parent_class):
         print("    ║                 To display the board properly,                 ║")
         print("    ║           you may need to resize text or the window            ║")
         print("    ║                                                                ║")
-        print("    ║                             [enter]                            ║")
+        print("    ║    TIP: you can skip certain animations by pressing [Enter]    ║")
+        print("    ║                                                                ║")
+        print("    ║                             [Enter]                            ║")
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print()
-        print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
+        print("    |<──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────>|")
         print()
         print("    the board is the length of this line, adjust until the line doesn't wrap around your screen.\n    ", end = "")
 
     def input_management(self, user_input):
+        update_player_position(0)
         state.start_time = time()
         state.refresh_board()
 
@@ -173,7 +172,7 @@ class new_game_select_class(utils.parent_class):
         elif state.players_playing == 4:
             button_states = [False, False, True, True]
 
-        for i in create_button_prompts(["2 players", "3 players", "4 players", "Back"], button_states, [4, 3, 3, 6]):
+        for i in create_prompts(["2 players", "3 players", "4 players", "Back"], button_states, [4, 3, 3, 6]):
             print(i)
         print()
 
@@ -181,8 +180,7 @@ class new_game_select_class(utils.parent_class):
         if self.action != "name input":
             print("    ", end="")
             return
-
-        print("    ____________________________________________________________________________________")
+        print("    ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
         print("")
 
         if state.player_turn == 1:
@@ -239,15 +237,15 @@ class new_game_select_class(utils.parent_class):
         elif self.action == "name input":
 
             # enforces 2 characters width for name
-            name_width = 0
-            for char in user_input:
-                if width(char) in ("F", "W"): name_width += 2
-                else: name_width += 1
+            name_width = wcwidth.wcswidth(user_input)
             
             if user_input in ["  ", r"\\"]:
                 print("\n    === nice try. ===\n\n    ", end = "")
                 return
-
+            
+            elif name_width == -1:
+                print("\n    === how have you even managed to get a string this wide?? try again. ===\n\n    ", end="")
+                return
             elif name_width > 2:
                 print("\n    === icon too large, try a different icon (eg: '😊' or 'JE') ===\n\n    ", end="")
                 return
@@ -263,8 +261,6 @@ class new_game_select_class(utils.parent_class):
 
             if state.player_turn == 1:
                 self.action = None
-
-                update_player_position(0)
 
                 state.display_game_notice()
             else:

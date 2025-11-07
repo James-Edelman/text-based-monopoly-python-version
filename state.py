@@ -4,22 +4,33 @@ players_playing = 0
 dev_mode = False
 house_total = 32
 hotel_total = 12
-time_played = 0
-game_version = 0.96
+start_time = 0.0
+game_version = 0.97
 player_turn = None
-player: dict = None
+player = {}
 current_screen = "homescreen"
 
+# for asynchronous jamesfoolery
+sub_async_input_override = False
+input_override_logic = None
+
 globals().update({"skibidi skibidi hawk tuah": 67}) # this variable serves no purpose
+globals().update({67: "skibidi skibidi hawk tuah"}) # this variable serves no purpose
+
 
 # player icons can only appear in certain points here
 # default space is blank but some special cases specified individually
-player_display = [["          ", True] for i in range(41)]
+player_display = ["          " for i in range(41)]
 
-player_display[7] = ["    ()    ", False] # False = irregular
-player_display[22] = ["    / /   ", False]
-player_display[36] = [ "  \\_|    ", False]
-player_display[40] = [" ║ ║ ║ ║ ", False]
+player_display[2] = "    \x1b[33m└┘\x1b[0m    "
+player_display[7] = "    \x1b[38;2;255;103;35m()\x1b[0m    "
+player_display[17] = "         "
+player_display[22] = "    \x1b[38;2;255;103;35m()\x1b[0m    "
+player_display[28] = "    \x1b[94m/\\\x1b[0m    "
+player_display[33] = "         "
+player_display[36] = "    \x1b[38;2;245;77;201m__\x1b[0m    "
+player_display[38] = "         "
+player_display[40] = " ║ ║ ║ ║ "
 
 property_data = [{} for i in range(28)]
 

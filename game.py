@@ -1,15 +1,22 @@
 ﻿"""most of game functionality: the board, trading, properties, bankruptcy"""
 
-from random import randint
-from time import time
-from better_iterator import better_iter, tripple_affirmative
+import random
+from time import time # type: ignore
+
+from wcwidth import wcswidth
+from better_iterator import better_iter
+import asyncio
+from os import name
 
 import utils
-from utils import clear_screen, create_button_prompts, sleep, update_player_position, save_game_to_file
+from utils import clear_screen, create_prompts, repair_property_states, sleep, update_player_position, save_game_to_file
 import state
 
-__required__ = ["online.send_data"]
+__required__ = ["online.send_data", "online.coro_protection"]
+
 send_data = None
+coro_protection = None
+
 
 class player_is_broke_class(utils.parent_class):
     def __call__(self, _player: int, cause = None):
@@ -72,7 +79,7 @@ class player_is_broke_class(utils.parent_class):
                 print("    ║                                                                ║")
             print("    ╚════════════════════════════════════════════════════════════════╝")
 
-            state.state.display_property_list(_player, False, available_funds < abs(state.player[_player]["$$$"]))
+            state.display_property_list(_player, False, available_funds < abs(state.player[_player]["$$$"]))
  
         # if the player has no properties, they immediately get eliminated
         else:
@@ -95,17 +102,15 @@ class player_is_broke_class(utils.parent_class):
             self.bankruptcy_details = [_player, cause]
 
     def input_management(self, user_input):
+        super().input_management(user_input)
         if self.action == "whump whump":
             
             # updates the player's status to "bankrupt" and removes them from play
-            state.player[self.bankruptcy_details[0]]["status"] = "bankrupt"
             bankruptcy(*self.bankruptcy_details)
 
 
 class refresh_board_class(utils.parent_class):
-    """displays the game board"""
     def __init__(self):
-        self.money_structure = better_iter(["outer", "top_info", "bottom_info"], True)
         self.action = None
         self.passed_go_art = [
             r"✨    \¯\/¯/ /¯¯\  |¯||¯|    |¯¯¯\  /¯\   /¯⁐⁐| /¯⁐⁐| |¯¯¯| |¯¯¯\      /¯¯¯|   /¯¯\    ✨  ",
@@ -113,17 +118,30 @@ class refresh_board_class(utils.parent_class):
             r" ✨    /_/   \__/   \__/     |_|  /_/¯\_\ |___/ |___/ |___| |___/      \___/   \__/      ✨",
         ]
         self.passed_go = False
-        self.player_turn_display = [[] for i in range(5)]
         self.prev_cash = [0, 0, 0, 0]
 
         # art displaying the current turn
-        self.player_turn_display[1] = [" ___    ", "/__ |   ", " _| |_  ", "|_____| "]
-        self.player_turn_display[2] = [" _----_ ", "/__/  / ", " /  /___", "|______|"]
-        self.player_turn_display[3] = [" ______ ", "|____  \\", " |___ ⟨⁐", "|______/"]
-        self.player_turn_display[4] = ["__  __  ", "| || |_ ", "|___  _|", "   |_|  "]
+        self.numbers = [
+            None,
+            ["          ", "  /‾‾|    ", " /   |    ",
+             "/_/| |    ", "   | |    ", "   | |    ",
+             "   | |    ", " __| |__  ", "|_______| st"],
+
+            ["  _____   ", " / ___ \\  ", "| /   \\ | ",
+             "|_|   | | ", "     / /  ", "    / /   ",
+             "   / /    ", "  / /___  ", " |______| nd"],
+
+            [" ______   ", "|____  |  ", "    / /   ",
+             "   / /    ", "  |  ‾‾\\  ", "   ‾‾‾\\ | ",
+             "      | | ", "|‾\\___| | ", " \\_____/ rd "],
+
+            ["     __   ", "    /  |  ", "   / / |  ",
+             "  / /| |  ", " / / | |  ", "|  ‾‾   ‾|",
+             " ‾‾‾‾| |‾ ", "     | |  ", "     |_| th "]
+        ]
+        self.msg_lock = False
 
     def __call__(self):
-
         def display_money(position: int, alt_position: int | None = 0):
             """
             displays a player's money if one exists at the position.
@@ -131,6 +149,8 @@ class refresh_board_class(utils.parent_class):
 
             alt_position should always be the bigger number.
             """
+            nonlocal money_structure
+
             def top_info():
 
                 # form the borders surrounding the player if it's their turn
@@ -146,25 +166,25 @@ class refresh_board_class(utils.parent_class):
                 else: outer = " "
 
                 if state.player[turn_spot]["status"] in ("playing", "jail"):
-                    for i in range(12 - len(str(state.player[turn_spot]["$$$"]))):
+                    for i in range(12 - len(str(int(state.player[turn_spot]["$$$"])))):
                         extra_space += " "
 
                     output =  f"{outer} ${state.player[turn_spot]['$$$']}{extra_space} {outer}"
 
                 # displays the player's status if not playing
                 else:
-                    for i in range((11 - len(state.player[turn_spot]["status"])) // 2):
+                    for i in range((13 - len(state.player[turn_spot]["status"])) // 2):
                         extra_space += " "
                     if len(state.player[turn_spot]["status"]) % 2 == 1:
                         extra_extra_space = " "
 
-                    output = f"{outer}{extra_space} = {state.player[turn_spot]["status"].upper()} ={extra_extra_space}{extra_space}{outer}"
+                    output = f"{extra_space} = {state.player[turn_spot]["status"].upper()} ={extra_extra_space}{extra_space}"
                 return output
 
             def outer():
-                if   player_check == state.players_playing - (position - 1)    : return "┌───────────────┐"
-                elif player_check == state.players_playing - (alt_position - 1): return "└───────────────┘"
-                else                                                    : return "                 "
+                if   player_check == turn_spot: return "╭───────────────╮"
+                elif player_check == alt_spot : return "╰───────────────╯"
+                else                          : return "                 "
 
             # outlines playing player if online, as opposed to current player
             if state.online_config.game_strt_event.is_set():
@@ -172,29 +192,53 @@ class refresh_board_class(utils.parent_class):
             else:
                 player_check = state.player_turn
 
-            output = "                 " # 17 spaces
+            # if no players here, then it is left blank
+            if position > state.players_playing:
+                return "                 " # 17 spaces
+
             turn_spot = state.players_playing - (position - 1)
+            alt_spot = state.players_playing - (alt_position - 1)
 
-            # check if there is a player to display at this location
-            if position <= state.players_playing: output = locals()[next(self.money_structure)]()
-            return output
+            money_structure += 1
+            if money_structure > 3: money_structure -= 3
 
-        def houses(i: int):
-            """returns the number of houses the property has"""
+            if   money_structure % 3 == 0: return bottom_info()
+            elif money_structure % 2 == 0: return top_info()
+            else                         : return outer()
+
+        def houses(i: int, align = "c" or "l") -> str:
+            """returns the number of houses and owner of the property
+            'l' returns 12 characters instead of 10, aligned to the left"""
             space = lambda: '' if state.property_data[i]["street value"] >= 100 else ' '
+            
+            if state.property_data[i]["owner"]:
+                owner = state.player[state.property_data[i]["owner"]]["char"]
 
-            match state.property_data[i]["upgrade state"] - 2:
-                case 1: return "    🏠    "
-                case 2: return "  🏠  🏠  "
-                case 3: return "🏠  🏠  🏠"
-                case 4: return "🏠 🏠🏠 🏠"
-                case 5: return "    🏨    "
+            if align == "l":
+                match state.property_data[i]["upgrade state"]:
+                    case 1: return f"{owner}          "
+                    case 2: return f"{owner} set      "
+                    case 3: return f"{owner}: 🏠      "
+                    case 4: return f"{owner}: 🏠🏠    "
+                    case 5: return f"{owner}: 🏠🏠🏠  "
+                    case 6: return f"{owner}: 🏠🏠🏠🏠 "
+                    case 7: return f"{owner}: 🏨      "
+                    case _: return f"${space()}{state.property_data[i]["street value"]}        "
+                
+            match state.property_data[i]["upgrade state"]:
+                case 1: return f"    {owner}    "
+                case 2: return f"  {owner} set  "
+                case 3: return f" {owner}:  🏠  "
+                case 4: return f" {owner}: 🏠🏠 "
+                case 5: return f"{owner}: 🏠🏠🏠"
+                case 6: return f"{owner}🏠🏠🏠🏠"
+                case 7: return f" {owner}:  🏨  "
                 case _: return f"   ${space()}{state.property_data[i]["street value"]}   "
 
         def money_change(position: int):
             if position > state.players_playing:
                 return "       "
-
+            
             output = ""
             change = state.player[state.players_playing - (position - 1)]["$$$"] \
                 - self.prev_cash[state.players_playing - position]
@@ -211,160 +255,209 @@ class refresh_board_class(utils.parent_class):
         def online_name(position: int):
             if not state.online_config.game_strt_event.is_set() or position > state.players_playing:
                 return "                    "
-
-            if state.online_config.socket_type == "client":
-                name = state.online_config.joined_clients[0][state.players_playing - position]
-            else:
-                clients = [item[0] for item in state.online_config.joined_clients]               
-                clients.insert(0, state.online_config.display_name)
-                name = clients[state.players_playing - position]
+           
+            name = state.online_config.joined_clients[state.players_playing - position][0]
                 
             
             extra_space = ""
-            for i in range(20 - len(name)):
-                extra_space += " "
+            for i in range(20 - wcswidth(name)): extra_space += " "
             return f"{extra_space}{name}"
 
-        # money structure otherwise starts at index 1 from previous use
-        self.money_structure.index = -1
-
-        # displays the player whom owns the property if exists
-        icon = lambda i: state.player[state.property_data[i]["owner"]]["char"] if state.property_data[i]["owner"] else "  "
+        money_structure = 0
 
         state.current_screen = self.__name__
+        button_list = [None, None]
         clear_screen()
 
-        # once player finishes roll, updates player turn player 
-        if state.online_config.game_strt_event.is_set() and state.player_action.dice_rolled and state.refresh_board.action == None:
+        # once player finishes roll, updates player turn
+        #there are soo much issues here - fix
+        if state.online_config.game_strt_event.is_set() and \
+                state.player_action.dice_rolled and self.action == None \
+                and state.online_config.player_num == state.player_turn:
+
             _list = [item[1]["$$$"] for item in state.player.items()]
 
             send_data(f"turnfinished:{state.player[state.player_turn]['pos']}:{_list}")
-            state.refresh_board.end_turn_logic()
+            self.end_turn_logic()
 
-        # It'll all display fine in terminal, don't worry
-        print("")
-        print("     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
-        print(f"    \x1b[7m▊\x1b[0m▛               ▎{houses(14)}▎  __()_   ▎{houses(15)}▎{houses(16)}\x1b[0m▎   $200 __\x1b[7m▊\x1b[0m{houses(18)}\x1b[7m▊\x1b[0m{houses(19)}▎   $150   \x1b[7m▊\x1b[0m{houses(21)}\x1b[7m▊\x1b[0m   GO TO JAIL  ▜▎")
-        print(f"    \x1b[7m▊\x1b[0m  FREE PARKING  ▎          ▎  \\__ \\   ▎          ▎          \x1b[0m▎_()_()_| /\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎{state.player_display[28][0]}\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m     {state.player_display[30][0]} ▎")
-        print(f"    \x1b[7m▊\x1b[0m      ____      ▎{state.player_display[21][0]}▎{state.player_display[22][0]}▎{state.player_display[23][0]}▎{state.player_display[24][0]}\x1b[0m▎\\  ____ _)\x1b[7m▊\x1b[0m{state.player_display[26][0]}\x1b[7m▊\x1b[0m{state.player_display[27][0]}▎    /\\    \x1b[7m▊\x1b[0m{state.player_display[29][0]}\x1b[7m▊\x1b[0m  /¯¯¯¯\\        ▎")
-        print("    \x1b[7m▊\x1b[0m     /[__]\\     ▎          ▎  / /  /\\ ▎          ▎          \x1b[0m▎/__)  /_\\ \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎   /  \\   \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m | (¯¯)/¯¯¯¯\\   ▎")
-        print(f"    \x1b[7m▊\x1b[0m    |_ () _|    ▎          ▎  \\ ‾-‾ / ▎  Fleet   ▎Trafalgar ▎{state.player_display[25][0]}\x1b[7m▊\x1b[0mLeicester \x1b[7m▊\x1b[0m Coventry ▎  |    |  \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m  \\_¯¯| (¯¯) |  ▎")
-        print("    \x1b[7m▊\x1b[0m     U----U     ▎  Strand  ▎   ‾---‾  ▎  Street  ▎  Square  \x1b[0m▎Fenchurch \x1b[7m▊\x1b[0m  Square  \x1b[7m▊\x1b[0m  Street  ▎   \\__/   \x1b[7m▊\x1b[0mPiccadilly\x1b[7m▊\x1b[0m    \\/ \\_¯¯_/   ▎")
-        print(f"    \x1b[7m▊\x1b[0m   {state.player_display[20][0]}   \x1b[48;2;248;49;47m▎          \x1b[0m▎  CHANCE  \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎ Station  \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎WaterWorks\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m     O   \\/     ▎")
-        print("    \x1b[7m▊\x1b[0m                \x1b[48;2;248;49;47m▎          \x1b[0m▎          \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎          \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎          \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m      O O       ▎")
-        print("    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;255;103;35m▔▔▔▔\x1b[0m▛▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▜\x1b[48;2;0;210;106m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
-        print(f"    \x1b[7m▊\x1b[0mVine Street \x1b[48;2;255;103;35m    \x1b[0m▎    {icon(14)}                    {icon(15)}         {icon(16)}         {icon(17)}         {icon(18)}         {icon(19)}         {icon(20)}         {icon(21)}    \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m Regent St. ▎")
-        print(f"    \x1b[7m▊\x1b[0m {houses(13)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(13)}  _____     __          ___    ___  ___   ______     ______       {self.player_turn_display[state.player_turn][0]}                  {icon(22)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(22)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {state.player_display[19][0]} \x1b[48;2;255;103;35m    \x1b[0m▎    |  _  \\   |  |        /   \\   \\  \\/  /  |  ____|   |  __  \\      {self.player_turn_display[state.player_turn][1]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {state.player_display[31][0]} ▎")
-        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    |  ___/   |  |__     /  ^  \\   \\_  _/   |  __|_    |      /      {self.player_turn_display[state.player_turn][2]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m\x1b[30m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
-        print(f"    \x1b[7m▊\x1b[0mMarlborough \x1b[48;2;255;103;35m    \x1b[0m▎    |__|      |_____|   /__/¯\\__\\   |__|    |______|   |__|\\__\\      {self.player_turn_display[state.player_turn][3]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m            ▎")
-        print("    \x1b[7m▊\x1b[0m   Street   \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m Oxford St. ▎")
-        print(f"    \x1b[7m▊\x1b[0m {houses(12)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(12)}   ____       _____      __                                                                 {icon(23)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(23)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {state.player_display[18][0]} \x1b[48;2;255;103;35m    \x1b[0m▎     /  __|     /     \\    |  |                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {state.player_display[32][0]} ▎")
-        print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    |  |_  |   |  (_)  |   |__|                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
-        print("    \x1b[7m▊\x1b[0m COMUNITY CHEST ▎     \\____/     \\_____/    (__)                                                                   \x1b[7m▊\x1b[0m COMUNITY CHEST ▎")
-        print(f"    \x1b[7m▊\x1b[0m   {state.player_display[17][0]}   ▎                                                                                                  \x1b[7m▊\x1b[0m   {state.player_display[33][0]}   ▎")
-    
         button_states = [False, True, False, True]
+        button_names = ["Roll dice", "Trade", "", "Save & Exit"]
 
         # checks if the players owns any properties, button is 'trade' otherwise
-        x = better_iter(state.property_data)
-        prompt_2 = "Trade"
-        while prompt_2 == "Trade":
-            try:
-                check_prop = next(x)
-
-            # if all properties have been checked, loop is broken
-            except tripple_affirmative:
+        for prop in state.property_data:
+            if prop["owner"] == state.player_turn:
+                button_names[1] = "Properties"
                 break
 
-            # if player has properties, the prompt is changed and loop broken
-            if check_prop["owner"] == state.player_turn: 
-                prompt_2 = "Properties"
-                break
-
-        # additional logic is required for online
-        online_check = lambda: True if (state.online_config.player_num == state.player_turn or not state.online_config.game_strt_event.is_set()) else False
-
-        # similar checks are performed for the other prompts
         # if the player has spent 3 turns in jail, they MUST pay bail, regardless of conditions
-        button_states[0] = (online_check() and state.player_action.dice_rolled == False \
-            and self.action == None and state.player[state.player_turn]["jail time"] < 3)
+        button_states[0] = ((state.online_config.player_num == state.player_turn or not state.online_config.game_strt_event.is_set()) \
+            and state.player_action.dice_rolled == False and self.action == None and state.player[state.player_turn]["jail time"] < 3)
 
-        if (self.action == None and state.player_action.dice_rolled == True) or \
-                (state.online_config.game_strt_event.is_set() and state.online_config.socket_type == "host"):
-            button_states[2] = True
+        button_states[2] = (self.action == None and state.player_action.dice_rolled == True) or \
+                 state.online_config.socket_type == "host"
 
-        if state.online_config.game_strt_event.is_set():
-            if state.online_config.socket_type == "client":
-                prompt_3 = ""
-            else:
-                prompt_3 = "kick user"
-        else: prompt_3 = "End turn"
+        # socket_type remains as None during offline games
+        if state.online_config.socket_type == "host":
+            button_names[2] = "kick user"
+        elif state.online_config.socket_type != "client": button_names[2] = "End turn"
 
-        button_list = create_button_prompts(["Roll dice", prompt_2, prompt_3, "Save & Exit"], button_states, [0, 3, 3, 6])
-
-        print(f"    \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎    {button_list[0]}          \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎")
-        print(f"    \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎    {button_list[1]}          \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎")
-        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎    {button_list[2]}          \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
-        print(f"    \x1b[7m▊\x1b[0m            \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list[3]}          \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m            ▎")
-        print("    \x1b[7m▊\x1b[0m Bow Street \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m  Bond St.  ▎")
-    
-        button_states = [["", ""],[True, True]]
+        button_list[0] = create_prompts(button_names, button_states)
+        
+        button_states = [True, True]
+        button_names = ["", ""]
 
         if self.action == "property":
-            button_states[0] = ["Buy property", "Auction"]
-            if state.player[state.player_turn]["$$$"] < state.property_data[state.prop_from_pos[state.player[state.player_turn]["pos"]]]["street value"]: button_states[1][1] = False
+            button_names = ["Buy property", "Auction"]
+            if state.player[state.player_turn]["$$$"] < state.property_data[state.prop_from_pos[state.player[state.player_turn]["pos"]]]["street value"]:
+                button_states[1][0] = False
 
         elif state.player[state.player_turn]["status"] == "jail":
             button_states[0] = ["Give bail $", "Use card"]
          
             if state.player[state.player_turn]["$$$"] < 50        : button_states[1][0] = False
             if state.player[state.player_turn]["jail passes"] == 0: button_states[1][1] = False
-        button_list = create_button_prompts(button_states[0], button_states[1], [0, 3])
 
-        print(f"    \x1b[7m▊\x1b[0m {houses(11)} \x1b[48;2;255;103;35m    \x1b[0m▎ {icon(11)} {button_list[0]}                                                    {icon(24)} \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(24)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {state.player_display[16][0]} \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list[1]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {state.player_display[34][0]} ▎")
-        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    {button_list[2]}                                                       \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
-        print(f"    \x1b[7m▊\x1b[0m |\\⁔ Marylebone ▎    {button_list[3]}                                                       \x1b[7m▊\x1b[0m Liverpool|∖↙() ▎")
-        print("    \x1b[7m▊\x1b[0m ¯| |◁ Station  ▎                                                                                                  \x1b[7m▊\x1b[0m Station  |‿ |  ▎")
-        print(f"    \x1b[7m▊\x1b[0m () |  $200     ▎ {icon(10)}                                                                                            {icon(25)} \x1b[7m▊\x1b[0m $200      | () ▎")
-        print(f"    \x1b[7m▊\x1b[0m  | ⁀|{state.player_display[15][0]}▎                                                                                                  \x1b[7m▊\x1b[0m{state.player_display[35][0]}▷|‿|_ ▎")
+        button_list[1] = create_prompts(button_names, button_states)
+        """
+        # It'll all display fine in terminal, don't worry
+        print("")
+        print("     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁")
+        print(f"    \x1b[7m▊\x1b[0m▛               ▎{houses(14)}▎  __()_   ▎{houses(15)}▎{houses(16)}\x1b[0m▎   $200 __\x1b[7m▊\x1b[0m{houses(18)}\x1b[7m▊\x1b[0m{houses(19)}▎   $150   \x1b[7m▊\x1b[0m{houses(21)}\x1b[7m▊\x1b[0m   GO TO JAIL  ▜▎")
+        print(f"    \x1b[7m▊\x1b[0m  FREE PARKING  ▎          ▎  \\__ \\   ▎          ▎          \x1b[0m▎_()_()_| /\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎{state.player_display[28]}\x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m     {state.player_display[30]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m      ____      ▎{state.player_display[21]}▎{state.player_display[22]}▎{state.player_display[23]}▎{state.player_display[24]}\x1b[0m▎\\  ____ _)\x1b[7m▊\x1b[0m{state.player_display[26]}\x1b[7m▊\x1b[0m{state.player_display[27]}▎    /\\    \x1b[7m▊\x1b[0m{state.player_display[29]}\x1b[7m▊\x1b[0m  /¯¯¯¯\\        ▎")
+        print("    \x1b[7m▊\x1b[0m     /[__]\\     ▎          ▎  / /  /\\ ▎          ▎          \x1b[0m▎/__)  /_\\ \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m          ▎   /  \\   \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m | (¯¯)/¯¯¯¯\\   ▎")
+        print(f"    \x1b[7m▊\x1b[0m    |_ () _|    ▎          ▎  \\ ‾-‾ / ▎  Fleet   ▎Trafalgar ▎{state.player_display[25]}\x1b[7m▊\x1b[0mLeicester \x1b[7m▊\x1b[0m Coventry ▎  |    |  \x1b[7m▊\x1b[0m          \x1b[7m▊\x1b[0m  \\_¯¯| (¯¯) |  ▎")
+        print("    \x1b[7m▊\x1b[0m     U----U     ▎  Strand  ▎   ‾---‾  ▎  Street  ▎  Square  \x1b[0m▎Fenchurch \x1b[7m▊\x1b[0m  Square  \x1b[7m▊\x1b[0m  Street  ▎   \\__/   \x1b[7m▊\x1b[0mPiccadilly\x1b[7m▊\x1b[0m    \\/ \\_¯¯_/   ▎")
+        print(f"    \x1b[7m▊\x1b[0m   {state.player_display[20]}   \x1b[48;2;248;49;47m▎          \x1b[0m▎  CHANCE  \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎ Station  \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎WaterWorks\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m     O   \\/     ▎")
+        print("    \x1b[7m▊\x1b[0m                \x1b[48;2;248;49;47m▎          \x1b[0m▎          \x1b[48;2;248;49;47m▎          ▎          \x1b[0m▎          \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[30m\x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[0m▎          \x1b[7m▊\x1b[0m\x1b[48;2;255;176;46m          \x1b[7m▊\x1b[0m      O O       ▎")
+        print("    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;255;103;35m▔▔▔▔\x1b[0m▛▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▜\x1b[48;2;0;210;106m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
+        print(f"    \x1b[7m▊\x1b[0mVine Street \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m Regent St. ▎")
+        print(f"    \x1b[7m▊\x1b[0m {houses(13)} \x1b[48;2;255;103;35m    \x1b[0m▎     _____     __          ___    ___  ___   ______     ______       {self.player_turn_display[state.player_turn][0]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(22)} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {state.player_display[19]} \x1b[48;2;255;103;35m    \x1b[0m▎    |  _  \\   |  |        /   \\   \\  \\/  /  |  ____|   |  __  \\      {self.player_turn_display[state.player_turn][1]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {state.player_display[31]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    |  ___/   |  |__     /  ^  \\   \\_  _/   |  __|_    |      /      {self.player_turn_display[state.player_turn][2]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m\x1b[30m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
+        print(f"    \x1b[7m▊\x1b[0mMarlborough \x1b[48;2;255;103;35m    \x1b[0m▎    |__|      |_____|   /__/¯\\__\\   |__|    |______|   |__|\\__\\      {self.player_turn_display[state.player_turn][3]}                     \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m            ▎")
+        print("    \x1b[7m▊\x1b[0m   Street   \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m Oxford St. ▎")
+        print(f"    \x1b[7m▊\x1b[0m {houses(12)} \x1b[48;2;255;103;35m    \x1b[0m▎      ____       _____      __                                                                    \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(23)} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {state.player_display[18]} \x1b[48;2;255;103;35m    \x1b[0m▎     /  __|     /     \\    |  |                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {state.player_display[32]} ▎")
+        print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    |  |_  |   |  (_)  |   |__|                                                                   \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
+        print("    \x1b[7m▊\x1b[0m COMUNITY CHEST ▎     \\____/     \\_____/    (__)                                                                   \x1b[7m▊\x1b[0m COMUNITY CHEST ▎")
+        print(f"    \x1b[7m▊\x1b[0m   {state.player_display[17]}   ▎                                                                                                  \x1b[7m▊\x1b[0m   {state.player_display[33]}   ▎")
+        print(f"    \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎{button_list[0]}     \x1b[7m▊\x1b[0m  💰  💵  🪙    ▎")
+        print(f"    \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎{button_list[1]}     \x1b[7m▊\x1b[0m💵  🪙  💰  💵  ▎")
+        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎{button_list[2]}     \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
+        print(f"    \x1b[7m▊\x1b[0m            \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m            ▎")
+        print("    \x1b[7m▊\x1b[0m Bow Street \x1b[48;2;255;103;35m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m  Bond St.  ▎")
+        print(f"    \x1b[7m▊\x1b[0m {houses(11)} \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list2[0]}                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {houses(24)} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {state.player_display[16]} \x1b[48;2;255;103;35m    \x1b[0m▎    {button_list2[1]}                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m    \x1b[0m {state.player_display[34]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;255;103;35m▁▁▁▁\x1b[0m▎    {button_list2[2]}                                                  \x1b[7m▊\x1b[0m\x1b[48;2;0;210;106m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
+        print(f"    \x1b[7m▊\x1b[0m |\\⁔ Marylebone ▎                                                                                                  \x1b[7m▊\x1b[0m Liverpool|∖↙() ▎")
+        print("    \x1b[7m▊\x1b[0m ¯| |◁ Station  ▎    ╭───┬──────────────╮   ╭───┬──────────────╮                                                   \x1b[7m▊\x1b[0m Station  |‿ |  ▎")
+        print(f"    \x1b[7m▊\x1b[0m () |  $200     ▎                                                                                                  \x1b[7m▊\x1b[0m $200      | () ▎")
+        print(f"    \x1b[7m▊\x1b[0m  | ⁀|{state.player_display[15]}▎                                                                                                  \x1b[7m▊\x1b[0m{state.player_display[35]}▷|‿|_ ▎")
         print("    \x1b[7m▊\x1b[0m▁()↗∖|▁▁▁▁▁▁▁▁▁▁▎                                                                                                  \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁\\|▁▎")
         print("    \x1b[7m▊\x1b[0mNorthumb'nd \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m      _  CHANCE ▎")
         print("    \x1b[7m▊\x1b[0m   Avenue   \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    /‾_‾\\|‾|    ▎")
-        print(f"    \x1b[7m▊\x1b[0m {houses(9)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(9)}                                                                                               \x1b[7m▊\x1b[0m   | | \\_  | () ▎")
-        print(f"    \x1b[7m▊\x1b[0m {state.player_display[14][0]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    \\_\\{state.player_display[36][0]}▎")
+        print(f"    \x1b[7m▊\x1b[0m {houses(9)} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m   | | \\_  | () ▎")
+        print(f"    \x1b[7m▊\x1b[0m {state.player_display[14]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m    \\_\\{state.player_display[36]}▎")
         print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▎")
-  
-        # ensures that floats aren't shown due to my bad code
-        for player_ in state.player.items(): player_[1]["$$$"] = int(player_[1]["$$$"])
-        
         print(f"    \x1b[7m▊\x1b[0m            \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m            ▎")
         print(f"    \x1b[7m▊\x1b[0m Whitehall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                        {online_name(4)} {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m Park Lane  ▎")    
-        print(f"    \x1b[7m▊\x1b[0m {houses(8)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(8)}                                                                  {money_change(4)} {display_money(4)} {icon(26)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(26)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {state.player_display[13][0]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(3, 4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {state.player_display[37][0]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {houses(8)} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                     {money_change(4)} {display_money(4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(26)} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {state.player_display[13]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(3, 4)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {state.player_display[37]} ▎")
         print(f"    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▎                                                        {online_name(3)} {display_money(3)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m Electric Co.   ▎                                                                     {money_change(3)} {display_money(3)}    \x1b[7m▊\x1b[0m ∖  ⁄ SUPER TAX ▎")
         print(f"    \x1b[7m▊\x1b[0m $150       |\\  ▎                                                                             {display_money(2, 3)}    \x1b[7m▊\x1b[0m- 💎 -     $100 ▎")
-        print(f"    \x1b[7m▊\x1b[0m          __| \\ ▎ {icon(7)}                                                     {online_name(2)} {display_money(2)}    \x1b[7m▊\x1b[0m/¯¯¯¯\\{state.player_display[38][0]}▎")
-        print(f"    \x1b[7m▊\x1b[0m{state.player_display[12][0]}\\ |¯¯ ▎                                                                     {money_change(2)} {display_money(2)}    \x1b[7m▊\x1b[0m (⁐⁐) |         ▎")   
+        print(f"    \x1b[7m▊\x1b[0m          __| \\ ▎                                                        {online_name(2)} {display_money(2)}    \x1b[7m▊\x1b[0m/¯¯¯¯\\{state.player_display[38]}▎")
+        print(f"    \x1b[7m▊\x1b[0m{state.player_display[12]}\\ |¯¯ ▎                                                                     {money_change(2)} {display_money(2)}    \x1b[7m▊\x1b[0m (⁐⁐) |         ▎")   
         print(f"    \x1b[7m▊\x1b[0m           \\|   ▎                                                                             {display_money(1, 2)}    \x1b[7m▊\x1b[0m\\____/\x1b[0m          ▎")
         print(f"    \x1b[7m▊\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔\x1b[48;2;245;47;171m▔▔▔▔\x1b[0m▎                                                        {online_name(1)} {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m▔▔▔▔\x1b[0m▔▔▔▔▔▔▔▔▔▔▔▔▎")
         print(f"    \x1b[7m▊\x1b[0m Pall Mall  \x1b[48;2;245;47;171m    \x1b[0m▎                                                                     {money_change(1)} {display_money(1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m   Mayfair  ▎")
-        print(f"    \x1b[7m▊\x1b[0m {houses(6)} \x1b[48;2;245;47;171m    \x1b[0m▎ {icon(6)}                                                                          {display_money(0, 1)} {icon(27)} \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(27)} ▎")
-        print(f"    \x1b[7m▊\x1b[0m {state.player_display[11][0]} \x1b[48;2;245;47;171m    \x1b[0m▎    {icon(5)}         {icon(4)}                    {icon(3)}         {icon(2)}                    {icon(1)}                    {icon(0)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {state.player_display[39][0]} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {houses(6)} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                             {display_money(0, 1)}    \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {houses(27)} ▎")
+        print(f"    \x1b[7m▊\x1b[0m {state.player_display[11]} \x1b[48;2;245;47;171m    \x1b[0m▎                                                                                                  \x1b[7m▊\x1b[0m\x1b[48;2;28;89;255m    \x1b[0m {state.player_display[39]} ▎")
         print("    \x1b[7m▊\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁\x1b[48;2;245;47;171m▁▁▁▁\x1b[0m▙▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▟\x1b[0m\x1b[48;2;28;89;255m▁▁▁▁\x1b[0m▁▁▁▁▁▁▁▁▁▁▁▁▎")
         print(f"    \x1b[7m▊\x1b[0m      │ ║ ║ ║ ║ \x1b[48;2;0;166;237m▎          \x1b[30m│          \x1b[0m▎  CHANCE  \x1b[48;2;0;166;237m▎          \x1b[0m▎  King's  ▎          \x1b[48;2;165;105;83m▎          \x1b[0m▎ COMUNITY \x1b[7m▊\x1b[0m\x1b[48;2;165;105;83m          \x1b[7m▊\x1b[0m  ____    ____  ▎")
         print(f"    \x1b[7m▊\x1b[0m   J  │ J A I L \x1b[48;2;0;166;237m▎          \x1b[30m│          \x1b[0m▎  _---_   \x1b[48;2;0;166;237m▎          \x1b[0m▎  Cross   ▎  INCOME  \x1b[48;2;165;105;83m▎          \x1b[0m▎   CHEST  \x1b[7m▊\x1b[0m\x1b[48;2;165;105;83m          \x1b[7m▊\x1b[0m /  __|  /    \\ ▎")
-        print(f"    \x1b[7m▊\x1b[0m   U  │ ║ ║ ║ ║ ▎Pent'ville│  Euston  ▎ / _-_ \\  ▎The Angel ▎{state.player_display[5][0]}▎   TAX    ▎whitechp'l▎{state.player_display[2][0]}\x1b[7m▊\x1b[0m Old Kent \x1b[0m\x1b[7m▊\x1b[0m|  |_ ‾||  ()  |▎")
-        print(f"    \x1b[7m▊\x1b[0m   S  │{state.player_display[40][0]}▎   Road   │   Road   ▎ \\/  / /  ▎Islington ▎ \\¯/___(¯/▎          ▎   Road   ▎          \x1b[7m▊\x1b[0m   Road   \x1b[7m▊\x1b[0m \\____/  \\____/ ▎")
-        print(f"    \x1b[7m▊\x1b[0m   T  │_║_║_║_║_▎          │          ▎   / /_   ▎          ▎( _______\\▎    🔷    ▎          ▎🪙  💰  💵\x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m{state.player_display[0][0]}____  ▎")
-        print(f"    \x1b[7m▊\x1b[0m   {state.player_display[10][0]}   ▎{state.player_display[9][0]}│{state.player_display[8][0]}▎   \\___\\  ▎{state.player_display[6][0]}▎/_| () () ▎{state.player_display[4][0]}▎{state.player_display[3][0]}▎  💵  💰  \x1b[7m▊\x1b[0m{state.player_display[1][0]}\x1b[7m▊\x1b[0m  /|-----/   /  ▎")
-        print(f"    \x1b[7m▊\x1b[0m    VISITING    ▎{houses(5)}│{houses(4)}▎{state.player_display[7][0]}▎{houses(3)}▎{houses(2)}▎ PAY $200 ▎{houses(1)}▎💰  🪙  💵\x1b[7m▊\x1b[0m{houses(1)}\x1b[7m▊\x1b[0m  \\|-----\\___\\  ▎")
+        print(f"    \x1b[7m▊\x1b[0m   U  │ ║ ║ ║ ║ ▎Pent'ville│  Euston  ▎ / _-_ \\  ▎The Angel ▎{state.player_display[5]}▎   TAX    ▎whitechp'l▎{state.player_display[2]}\x1b[7m▊\x1b[0m Old Kent \x1b[0m\x1b[7m▊\x1b[0m|  |_ ‾||  ()  |▎")
+        print(f"    \x1b[7m▊\x1b[0m   S  │{state.player_display[40]}▎   Road   │   Road   ▎ \\/  / /  ▎Islington ▎ \\¯/___(¯/▎          ▎   Road   ▎          \x1b[7m▊\x1b[0m   Road   \x1b[7m▊\x1b[0m \\____/  \\____/ ▎")
+        print(f"    \x1b[7m▊\x1b[0m   T  │_║_║_║_║_▎          │          ▎   / /_   ▎          ▎( _______\\▎    🔷    ▎          ▎🪙  💰  💵\x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m{state.player_display[0]}____  ▎")
+        print(f"    \x1b[7m▊\x1b[0m   {state.player_display[10]}   ▎{state.player_display[9]}│{state.player_display[8]}▎   \\___\\  ▎{state.player_display[6]}▎/_| () () ▎{state.player_display[4]}▎{state.player_display[3]}▎  💵  💰  \x1b[7m▊\x1b[0m{state.player_display[1]}\x1b[7m▊\x1b[0m  /|-----/   /  ▎")
+        print(f"    \x1b[7m▊\x1b[0m    VISITING    ▎{houses(5)}│{houses(4)}▎{state.player_display[7]}▎{houses(3)}▎{houses(2)}▎ PAY $200 ▎{houses(1)}▎💰  🪙  💵\x1b[7m▊\x1b[0m{houses(1)}\x1b[7m▊\x1b[0m  \\|-----\\___\\  ▎")
         print("    \x1b[7m▊\x1b[0m▙               ▎          │          ▎          ▎          ▎          ▎          ▎          ▎          \x1b[7m▊\x1b[0m          \x1b[0m\x1b[7m▊\x1b[0m               ▟▎")
         print("     ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ")
+        """
 
+        print(f"""
+    ╭─────────────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────────────╮
+    │                 │{houses(14)}│{state.player_display[22]}│{houses(15)}│{houses(16)}│{houses(17)}│{houses(18)}│{houses(19)}│\x1b[94m{state.player_display[28]}\x1b[0m│{houses(21)}│   GO TO JAIL!   │
+    │  FREE  PARKING  │          │\x1b[38;2;255;103;35m  /‾‾‾\\   \x1b[0m│          │          │          │          │          │   \x1b[94m/  \\\x1b[0m   │          │   {state.player_display[30]}    │
+    │   {state.player_display[20]}    │{state.player_display[21]}│\x1b[38;2;20;186;237m  ‾‾/ /   \x1b[0m│{state.player_display[23]}│{state.player_display[24]}│_()_()_|‾/│{state.player_display[26]}│{state.player_display[27]}│__\x1b[94m/\x1b[0m_ \x1b[94m\\ \\  \x1b[0m│{state.player_display[20]}│   /¯¯¯¯\\        │
+    │      _____      │          │\x1b[38;2;20;186;237m  /‾ /    \x1b[0m│          │          │\\  ____ _)│          │          │$150|\x1b[94m | | \x1b[0m│          │  | (¯¯)/¯¯¯¯\\   │
+    │     /[___]\\     │          │\x1b[38;2;245;77;201m / /‾  /\\ \x1b[0m│          │Trafalgar │/__)  /_\\ │Leicester │ Coventry │‾\x1b[94m|\x1b[0m‾‾\x1b[94m  / | \x1b[0m│          │   \\_¯¯| (¯¯) |  │
+    │    |_ (·) _|    │  Strand  │\x1b[38;2;245;77;201m \\ ‾--‾ / \x1b[0m│ Fleet St.│  Square  │          │  Square  │  Street  │\x1b[94m  \\____/  \x1b[0m│Piccadilly│     \\/ \\_¯¯_/   │
+    │     U-----U     \x1b[38;2;248;49;47m▐\x1b[7m          \x1b[0m\x1b[38;2;248;49;47m▌\x1b[0m\x1b[38;2;245;77;201m  ‾----‾  \x1b[0m\x1b[38;2;248;49;47m▐\x1b[7m          │          \x1b[0m\x1b[38;2;248;49;47m▌\x1b[0mFenchurch \x1b[38;2;255;176;46m▐\x1b[7m          │\x1b[48;2;255;176;46m          \x1b[0m\x1b[38;2;255;176;46m▌\x1b[0m Water    \x1b[38;2;255;176;46m▐\x1b[7m          \x1b[0m\x1b[38;2;255;176;46m▌\x1b[0m      O   \\/     │
+    │                 \x1b[38;2;248;49;47m▐\x1b[7m          \x1b[0m\x1b[38;2;248;49;47m▌\x1b[0m  CHANCE  \x1b[38;2;248;49;47m▐\x1b[7m          │          \x1b[0m\x1b[38;2;248;49;47m▌\x1b[0m Station  \x1b[38;2;255;176;46m▐\x1b[7m          │\x1b[48;2;255;176;46m          \x1b[0m\x1b[38;2;255;176;46m▌\x1b[0m    Works \x1b[38;2;255;176;46m▐\x1b[7m          \x1b[0m\x1b[38;2;255;176;46m▌\x1b[0m       O O       │
+    ├─────────────\x1b[38;2;255;103;35m▄▄▄▄▞\x1b[38;2;248;49;47m▀▀▀▀▀▀▀▀▀▀▘\x1b[0m──────────\x1b[38;2;248;49;47m▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘\x1b[0m──────────\x1b[38;2;255;176;46m▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘\x1b[0m──────────\x1b[0m\x1b[38;2;255;176;46m▝▀▀▀▀▀▀▀▀▀▀▚\x1b[0m\x1b[38;2;0;210;106m▄▄▄▄\x1b[0m─────────────┤
+    │ Vine Street \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m                                                                                                  \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m Regent St.  │
+    │ {houses(13, "l")}\x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][0]}                                                                                    \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m {houses(22, "l")}│
+    │             \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][1]}      _____    __         ___    ___  ___   ______    ______                        \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m             │
+    │ {state.player_display[19]}  \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][2]}     |  _  \\  |  |       /   \\   \\  \\/  /  |  ____|  |  __  \\                       \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m {state.player_display[31]}  │
+    ├─────────────\x1b[48;2;255;103;35m────\x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][3]}     |  ___/  |  |__    /  ^  \\   \\_  _/   |  __|_   |      /                       \x1b[38;2;0;210;106m▐\x1b[7m────\x1b[0m─────────────┤
+    │ Marlborough \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][4]}     |__|     |_____|  /__/¯\\__\\   |__|    |______|  |__|\\__\\                       \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m Oxford St.  │
+    │ Street      \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][5]}       ____      ____     _                                                         \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m {houses(22, "l")}│
+    │ {houses(12, "l")}\x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][6]}      /  __|    /    \\   | |                                                        \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m             │
+    │ {state.player_display[18]}  \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m    {self.numbers[state.player_turn][7]}     |  |_  |  |  ()  |  |_|                                                        \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m {state.player_display[32]}  │
+    ├───\x1b[33m┌┐\x1b[0m────────\x1b[38;2;255;103;35m▀▀▀▀▘\x1b[0m    {self.numbers[state.player_turn][8]}    \\____/    \\____/   (_)                                                        \x1b[38;2;0;210;106m▝▀▀▀▀\x1b[0m────────\x1b[33m┌┐\x1b[0m───┤
+    │/‾⁐\x1b[33m││\x1b[0m‾‾|COMMUNITY│                                                                                                  │COMMUNITY/‾⁐\x1b[33m││\x1b[0m‾‾|│
+    │\\__\x1b[33m││\x1b[0m‾‾    CHEST │                                                                                                  │ CHEST   \\__\x1b[33m││\x1b[0m‾‾ │
+    │ __\x1b[33m││\x1b[0m⁐‾\\         │{button_list[0][0]}     │          __\x1b[33m││\x1b[0m⁐‾\\│
+    │|__\x1b[33m││\x1b[0m__/{state.player_display[17]}│{button_list[0][1]}     │{state.player_display[33]}|__\x1b[33m││\x1b[0m__/│
+    ├───\x1b[33m└┘\x1b[0m────────\x1b[38;2;255;103;35m▄▄▄▄▖\x1b[0m{button_list[0][2]}     \x1b[38;2;0;210;106m▗▄▄▄▄\x1b[0m────────\x1b[33m└┘\x1b[0m───┤
+    │ Bow Street  \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m                                                                                                  \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m Bond St.    │
+    │ {houses(11, "l")}\x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m                                                                                                  \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m {houses(23, "l")}│
+    │             \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m{button_list[1][0]}                                                   \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m             │
+    │ {state.player_display[16]}  \x1b[48;2;255;103;35m    \x1b[0m\x1b[38;2;255;103;35m▌\x1b[0m{button_list[1][1]}                                                   \x1b[38;2;0;210;106m▐\x1b[7m    \x1b[0m {state.player_display[34]}  │
+    ├─────────────\x1b[38;2;255;103;35m▀▀▀▀▘\x1b[0m\x1b[0m{button_list[1][2]}                                                   \x1b[38;2;0;210;106m▝▀▀▀▀\x1b[0m───────|∖↙()─┤
+    │ |\\⁔  Marylebone │                                                                                                  │ Liverpool |‿ |  │
+    │ ¯| |◁   Station │                                                                                                  │ Station    | () │
+    │ () | {houses(10)} │                                                                                                  │ {houses(25)}▷|‿|_ │
+    │  | ⁀|{state.player_display[15]} │                                                                                                  │ {state.player_display[35]}   \\| │
+    ├─()↗∖|───────\x1b[38;2;245;47;171m▄▄▄▄▖\x1b[0m                                                                                                  ├─────────────────┤
+    │ Northumb'nd \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                                                  │\x1b[38;2;245;77;201m    __\x1b[0m    CHANCE │
+    │ Avenue      \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                                                  │\x1b[38;2;245;77;201m  /‾  ‾\x1b[38;2;20;186;237m\\  \x1b[38;2;255;103;35m┌─┐    \x1b[0m│
+    │ {houses(9, "l")}\x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                                                  │\x1b[38;2;245;77;201m | (‾‾\x1b[38;2;20;186;237m\\ \\_\x1b[38;2;255;103;35m/ | () \x1b[0m│
+    │ {state.player_display[14]}  \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                                                  │\x1b[38;2;245;77;201m  \\_\\\x1b[38;2;20;186;237m  \\__\x1b[38;2;255;103;35m_/     \x1b[0m│
+    ├─────────────\x1b[48;2;245;47;171m────\x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                                                  \x1b[38;2;28;89;255m▗▄▄▄▄\x1b[0m─────────────┤
+    │ Whitehall   \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                             {display_money(4)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m Park Lane   │
+    │ {houses(8, "l")}\x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                        {online_name(4)} {display_money(4)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m {houses(26, "l")}│
+    │             \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                     {money_change(4)} {display_money(4)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m             │
+    │ {state.player_display[13]}  \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                             {display_money(3, 4)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m {state.player_display[37]}  │
+    ├─────────────\x1b[38;2;245;47;171m▀▀▀▀▘\x1b[0m                                                        {online_name(3)} {display_money(3)}    \x1b[38;2;28;89;255m▝▀▀▀▀\x1b[0m────────∖──⁄─┤
+    │ Electric Co. │╲ │                                                                     {money_change(3)} {display_money(3)}    │ SUPER TAX - 💎 -│
+    │ {houses(7)} __╵ ╲│                                                                             {display_money(2, 3)}    │ $100      /¯¯¯¯\\│
+    │            ╲ ╷¯¯│                                                        {online_name(2)} {display_money(2)}    │ {state.player_display[38]}| (⁐⁐) |
+    │ {state.player_display[12]}  ╲│  │                                                                     {money_change(2)} {display_money(2)}    │           \\____/│
+    ├─────────────\x1b[38;2;245;47;171m▄▄▄▄▖\x1b[0m                                                                             {display_money(1, 2)}    \x1b[38;2;28;89;255m▗▄▄▄▄\x1b[0m─────────────┤
+    │ Pall Mall   \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                        {online_name(1)} {display_money(1)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m Mayfair     │
+    │ {houses(6, "l")}\x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                     {money_change(1)} {display_money(1)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m {houses(27, "l")}│
+    │             \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                             {display_money(0, 1)}    \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m             │
+    │ {state.player_display[11]}  \x1b[48;2;245;47;171m    \x1b[0m\x1b[38;2;245;47;171m▌\x1b[0m                                                                                                  \x1b[38;2;28;89;255m▐\x1b[7m    \x1b[0m {state.player_display[39]}  │
+    ├───────┬─╥─╥─\x1b[38;2;245;47;171m▀▀▀▀\x1b[38;2;0;166;237m▚▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖\x1b[0m──────────\x1b[38;2;0;166;237m▗▄▄▄▄▄▄▄▄▄▄▖\x1b[0m──────────┬──────────\x1b[38;2;165;105;83m▗▄▄▄▄▄▄▄▄▄▄▖\x1b[0m──────────\x1b[38;2;165;105;83m▗▄▄▄▄▄▄▄▄▄▄\x1b[0m\x1b[38;2;28;89;255m▞▀▀▀▀\x1b[0m─────────────┤
+    │       │ J A I L \x1b[38;2;0;166;237m▐\x1b[7m          │          \x1b[0m\x1b[38;2;0;166;237m▌\x1b[0m  CHANCE  \x1b[38;2;0;166;237m▐\x1b[7m          \x1b[0m\x1b[38;2;0;166;237m▌\x1b[0m  King's  │INCOME TAX\x1b[38;2;165;105;83m▐\x1b[7m          \x1b[0m\x1b[38;2;165;105;83m▌\x1b[0mCOMMUNITY \x1b[38;2;165;105;83m▐\x1b[7m          \x1b[0m\x1b[38;2;165;105;83m▌\x1b[0m  ____         _ │
+    │   J   │ ║ ║ ║ ║ \x1b[38;2;0;166;237m▐\x1b[7m          │          \x1b[0m\x1b[38;2;0;166;237m▌\x1b[0m\x1b[38;2;245;77;201m  _----_  \x1b[0m\x1b[38;2;0;166;237m▐\x1b[7m          \x1b[0m\x1b[38;2;0;166;237m▌\x1b[0m  Cross   │          \x1b[38;2;165;105;83m▐\x1b[7m          \x1b[0m\x1b[38;2;165;105;83m▌\x1b[0m     CHEST\x1b[38;2;165;105;83m▐\x1b[7m          \x1b[0m\x1b[38;2;165;105;83m▌\x1b[0m /  __|_      | |│
+    │   U   │ ║ ║ ║ ║ │Pent'ville│  Euston  │\x1b[38;2;245;77;201m / _--_ \\ \x1b[0m│The Angel │          │          │whitechp'l│  __\x1b[33m┌┐\x1b[0m__  │ Old Kent \x1b[0m│|  |_  |____  |_|│
+    │   S   │{state.player_display[40]}│   Road   │   Road   │\x1b[38;2;245;77;201m \\/  _/ / \x1b[0m│Islington │ \\¯/___(¯/│    :(    │   Road   │ / _\x1b[33m││\x1b[0m__| │   Road   │ \\____//    \\ (_)│
+    │   T   └─╨─╨─╨─╨─┤          │          │\x1b[38;2;20;186;237m    / _/  \x1b[0m│          │( _______\\│          │          │ \\__\x1b[33m││\x1b[0m__  │          \x1b[0m│      |  ()  | ┌───┐
+    │   {state.player_display[10]}    │{state.player_display[9]}│{state.player_display[8]}│\x1b[38;2;20;186;237m   / /__  \x1b[0m│{state.player_display[6]}│/_| () () │{state.player_display[4]}│{state.player_display[3]}│  __\x1b[33m││\x1b[0m_ \\ │{state.player_display[1]}│       \\____/  │\x1b[38;2;66;27;30m▐█▌\x1b[0m│
+    │    VISITING     │          │          │\x1b[38;2;255;103;35m   \\___/  \x1b[0m│          │{state.player_display[5]}│          │          │ |__\x1b[33m││\x1b[0m__/ │          │   ╷{state.player_display[0]} │\x1b[38;2;66;27;30m▐█▌\x1b[0m│
+    │                 │{houses(5)}│{houses(4)}│{state.player_display[7]}│{houses(3)}│{houses(2)}│ PAY $200 │{houses(1)}│{state.player_display[2]}│{houses(0)}│  ╱└───────────╯\x1b[38;2;66;27;30m▐█▌\x1b[0m│       
+    ╰─────────────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─❬\x1b[91m◀█████\x1b[38;2;177;57;68m██████\x1b[38;2;121;42;49m████▌\x1b[0m│
+                                                                                                                            ╲┌───────────────╯
+                                                                                                                             ╵""")
+        if self.passed_go == True:
+            for line in self.passed_go_art: print(f"    {line}")
+            print()
+            self.passed_go = False
+        
         # devmode commands are listed here
         if state.dev_mode == True:
             print("    === devmode commands ===")
@@ -387,84 +480,13 @@ class refresh_board_class(utils.parent_class):
             print("    \"setbidqueue\"")
             print("    \"dumpsave\"")
             print()
-        
-        if self.passed_go == True:
-            for line in self.passed_go_art: print(f"    {line}")
-            print()
-            self.passed_go = False
-
-        print("    ", end="")
 
         for item in state.player.items():
             self.prev_cash[item[0] - 1] = item[1]["$$$"]
-
-        return
-        print("    ┌─────────────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────────────┐")
-        print("    │                 │          │\x1b[38;2;255;103;35m    ()    \x1b[0m│          │          │   $200 __│          │          │\x1b[94m    /\\    \x1b[0m│          │   GO TO JAIL!   │")
-        print("    │  FREE  PARKING  │          │\x1b[38;2;255;103;35m  /‾‾‾\\   \x1b[0m│          │          │_()_()_| /│          │          │\x1b[94m   /  \\   \x1b[0m│          │                 │")
-        print("    │                 │          │\x1b[38;2;20;186;237m  ‾‾/ /   \x1b[0m│          │          │\\  ____ _)│          │          │\x1b[94m__/_ \\ \\  \x1b[0m│          │   /¯¯¯¯\\        │")
-        print("    │      _____      │          │\x1b[38;2;20;186;237m  /‾ /    \x1b[0m│          │          │/__)  /_\\ │          │          │$150\x1b[94m| | | \x1b[0m│          │  | (¯¯)/¯¯¯¯\\   │")
-        print("    │     /[___]\\     │          │\x1b[38;2;245;77;201m / /‾  /\\ \x1b[0m│          │Trafalgar │          │Leicester │ Coventry │\x1b[94m‾|‾‾  / | \x1b[0m│          │   \\_¯¯| (¯¯) |  │")
-        print("    │    |_ (·) _|    │  Strand  │\x1b[38;2;245;77;201m \\ ‾--‾ / \x1b[0m│ Fleet St.│  Square  │Fenchurch │  Square  │  Street  │\x1b[94m  \\____/  \x1b[0m│Piccadilly│     \\/ \\_¯¯_/   │")
-        print("    │     U-----U     \x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          \x1b[48;2;130;29;30m│\x1b[0m\x1b[38;2;245;77;201m  ‾----‾  \x1b[0m\x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          │          \x1b[48;2;130;29;30m│\x1b[0m Station  \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[30m│\x1b[48;2;255;176;46m          \x1b[39m\x1b[48;2;134;94;29m│\x1b[0m Water    \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[48;2;134;94;29m│\x1b[0m      O   \\/     │")
-        print("    │                 \x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          \x1b[48;2;130;29;30m│\x1b[0m  CHANCE  \x1b[48;2;130;29;30m│\x1b[48;2;248;49;47m          │          \x1b[48;2;130;29;30m│\x1b[0m          \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[30m│\x1b[48;2;255;176;46m          \x1b[39m\x1b[48;2;134;94;29m│\x1b[0m    Works \x1b[48;2;134;94;29m│\x1b[48;2;255;176;46m          \x1b[48;2;134;94;29m│\x1b[0m       O O       │")
-        print("    ├─────────────\x1b[48;2;134;58;14m────\x1b[0m┼\x1b[48;2;130;29;30m──────────\x1b[0m┴──────────┴\x1b[48;2;130;29;30m──────────\x1b[0m┴\x1b[48;2;130;29;30m──────────\x1b[0m┴──────────┴\x1b[48;2;134;94;29m──────────\x1b[0m┴\x1b[48;2;134;94;29m──────────\x1b[0m┴──────────┴\x1b[48;2;134;94;29m──────────\x1b[0m┼\x1b[48;2;6;111;59m────\x1b[0m─────────────┤")
-        print("    │ Vine Street \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m Regent St.  │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    ├─────────────\x1b[48;2;255;103;35m────\x1b[0m┤                                                                                                  ├\x1b[48;2;0;210;106m────\x1b[0m─────────────┤")
-        print("    │ Marlborough \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m Oxford St.  │")
-        print("    │ Street      \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    ├───\x1b[33m┌┐\x1b[0m────────\x1b[48;2;134;58;14m────\x1b[0m┤                                                                                                  ├\x1b[48;2;6;111;59m────\x1b[0m────────\x1b[33m┌┐\x1b[0m───┤")
-        print("    │/‾⁐\x1b[33m││\x1b[0m‾‾|COMMUNITY│                                                                                                  │COMMUNITY/‾⁐\x1b[33m││\x1b[0m‾‾|│")
-        print("    │\\__\x1b[33m││\x1b[0m‾‾    CHEST │                                                                                                  │ CHEST   \\__\x1b[33m││\x1b[0m‾‾ │")
-        print("    │ __\x1b[33m││\x1b[0m⁐‾\\         │                                                                                                  │          __\x1b[33m││\x1b[0m⁐‾\\│")
-        print("    │|__\x1b[33m││\x1b[0m__/         │                                                                                                  │         |__\x1b[33m││\x1b[0m__/│")
-        print("    ├───\x1b[33m└┘\x1b[0m────────\x1b[48;2;134;58;14m────\x1b[0m┤                                                                                                  ├\x1b[48;2;6;111;59m────\x1b[0m────────\x1b[33m└┘\x1b[0m───┤")
-        print("    │ Bow Street  \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m Bond St.    │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    │             \x1b[48;2;255;103;35m    \x1b[48;2;134;58;14m│ \x1b[0m                                                                                                \x1b[48;2;6;111;59m │\x1b[48;2;0;210;106m    \x1b[0m             │")
-        print("    ├─────────────\x1b[48;2;134;58;14m────\x1b[0m┤                                                                                                  ├\x1b[48;2;6;111;59m────\x1b[0m─────────────┤")
-        print("    │ |\\⁔  Marylebone │                                                                                                  │ Liverpool |∖↙() │")
-        print("    │ ¯| |◁   Station │                                                                                                  │ Station   |‿ |  │")
-        print("    │ () |       $200 │                                                                                                  │ $200       | () │")
-        print("    │  | ⁀|           │                                                                                                  │           ▷|‿|_ │")
-        print("    ├─()↗∖|───────\x1b[48;2;129;30;92m────\x1b[0m┤                                                                                                  ├──────────────\\|─┤")
-        print("    │ Northumb'nd \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m    __\x1b[0m    CHANCE │")
-        print("    │ Avenue      \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m  /‾  ‾\x1b[38;2;20;186;237m\\  \x1b[38;2;255;103;35m┌─┐    \x1b[0m│")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m | (‾‾\x1b[38;2;20;186;237m\\ \\_\x1b[38;2;255;103;35m/ | () \x1b[0m│")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                 │\x1b[38;2;245;77;201m  \\_\\\x1b[38;2;20;186;237m  \\__\x1b[38;2;255;103;35m_/     \x1b[0m│")
-        print("    ├─────────────\x1b[48;2;245;47;171m────\x1b[0m┤                                                                                                  ├\x1b[48;2;20;51;134m────\x1b[0m─────────────┤")
-        print("    │ Whitehall   \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m Park Lane   │")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")    
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
-        print("    ├─────────────\x1b[48;2;129;30;92m────\x1b[0m┤                                                                                                  ├\x1b[48;2;20;51;134m────\x1b[0m────────∖──⁄─┤")
-        print("    │ Electric Co. │╲ │                                                                                                  │ SUPER TAX - 💎 -│") # ∖  ⁄
-        print("    │ $150       __╵ ╲│                                                                                                  │ $100      /¯¯¯¯\\│")
-        print("    │            ╲ ╷¯¯│                                                                                                  │          | (⁐⁐) |")
-        print("    │             ╲│  │                                                                                                  │           \\____/│")
-        print("    ├─────────────\x1b[48;2;129;30;92m────\x1b[0m┤                                                                                                  ├\x1b[48;2;20;51;134m────\x1b[0m─────────────┤")
-        print("    │ Pall Mall   \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m Mayfair     │")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
-        print("    │             \x1b[48;2;245;47;171m    \x1b[48;2;129;30;92m│ \x1b[0m                                                                                                \x1b[48;2;20;51;134m │\x1b[48;2;28;89;255m    \x1b[0m             │")
-        print("    ├───────┬─╥─╥─\x1b[48;2;129;30;92m╥─╥─\x1b[0m┼\x1b[48;2;6;89;125m──────────\x1b[0m┬\x1b[48;2;6;89;125m──────────\x1b[0m┬──────────┬\x1b[48;2;6;89;125m──────────\x1b[0m┬──────────┬──────────┬\x1b[48;2;89;59;48m──────────\x1b[0m┬──────────┬\x1b[48;2;89;59;48m──────────\x1b[0m┼\x1b[48;2;20;51;134m────\x1b[0m─────────────┤")
-        print("    │       │ ║ ║ ║ ║ \x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          │          \x1b[48;2;6;89;125m│\x1b[0m  CHANCE  \x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          \x1b[48;2;6;89;125m│\x1b[0m  King's  │INCOME TAX\x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0mCOMMUNITY \x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0m  ____     ____  │")
-        print("    │   J   │ J A I L \x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          │          \x1b[48;2;6;89;125m│\x1b[0m\x1b[38;2;245;77;201m  _----_  \x1b[0m\x1b[48;2;6;89;125m│\x1b[48;2;0;166;237m          \x1b[48;2;6;89;125m│\x1b[0m  Cross   │          \x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0m     CHEST\x1b[48;2;89;59;48m│\x1b[48;2;165;105;83m          \x1b[48;2;89;59;48m│\x1b[0m /  __|   /    \\ │")
-        print("    │   U   │ ║ ║ ║ ║ │Pent'ville│  Euston  │\x1b[38;2;245;77;201m / _--_ \\ \x1b[0m│The Angel │          │          │whitechp'l│  __\x1b[33m┌┐\x1b[0m__  │ Old Kent \x1b[0m│|  |_ ‾| |  ()  |│")
-        print("    │   S   │ ║ ║ ║ ║ │   Road   │   Road   │\x1b[38;2;245;77;201m \\/  _/ / \x1b[0m│Islington │ \\¯/___(¯/│    :(    │   Road   │ / _\x1b[33m││\x1b[0m__| │   Road   │ \\____/   \\____/ │")
-        print("    │   T   └─╨─╨─╨─╨─┤          │          │\x1b[38;2;20;186;237m    / _/  \x1b[0m│          │( _______\\│          │          │ \\__\x1b[33m││\x1b[0m__  │          \x1b[0m│                 │")
-        print("    │                 │          │          │\x1b[38;2;20;186;237m   / /__  \x1b[0m│          │/_| () () │          │          │  __\x1b[33m││\x1b[0m_ \\ │          │   ╷       ____  │")
-        print("    │    VISITING     │          │          │\x1b[38;2;255;103;35m   \\___/  \x1b[0m│          │          │          │          │ |__\x1b[33m││\x1b[0m__/ │          │  ╱└──────/   /  │")
-        print("    │                 │          │          │\x1b[38;2;255;103;35m    ()    \x1b[0m│          │          │ PAY $200 │          │    \x1b[33m└┘\x1b[0m    │          │  ╲┌──────\\___\\  │")
-        print("    └─────────────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴───╵─────────────┘")
+        print("    ", end="")
 
     def input_management(self, user_input):
+        super().input_management(user_input)
 
         if self.action == "trade query" and user_input in ["y", "Y"]:
             state.trade_screen(state.player_turn)
@@ -474,9 +496,9 @@ class refresh_board_class(utils.parent_class):
 
         elif self.action == "dice_roll_accept":
             self.action = None
-            # moves the cursor above the dice ('ESC[11F') and clears everything below ('ESC[0J')
-            print("\x1b[11F\x1b[0J")
+            self()
 
+            # starts movement and logic.
             state.player_action.move()
 
         elif self.action == "chance notice":
@@ -497,9 +519,10 @@ class refresh_board_class(utils.parent_class):
 
         elif self.action == "kick user":
             for item in state.online_config.joined_clients:
-                if item[3] == user_input:
-                    item[1].sendall(b"booted")
-                    self.disconnect_management(item[3])
+                if item[2] == int(user_input):
+                    item[3].sendall(b"booted")
+                    self.disconnect_management(item[2])
+                    print("\n    === kicked user ===\n\n    ", end="")
                     break
             else:
                 print("\n    === invalid user ID ===\n\n    ", end = "")
@@ -513,12 +536,12 @@ class refresh_board_class(utils.parent_class):
                     print("\n    === it's not your turn ===\n\n    ", end="")
                     return
 
-                state.refresh_board()
+                self()
                 state.player_action.start_roll()
             elif state.dev_mode:
                 input("\n    === skipped with devmode [Enter] ===\n\n    ", end="")
 
-                state.refresh_board()
+                self()
                 state.player_action.start_roll()
 
             elif self.action != None:
@@ -539,7 +562,10 @@ class refresh_board_class(utils.parent_class):
                 state.display_property_list(state.player_turn)
 
         elif user_input in ["t", "T"]:
-            state.trade_screen(state.player_turn)
+            if state.online_config.game_strt_event.is_set():
+                state.trade_screen(state.online_config.player_num)
+            else:
+                state.trade_screen(state.player_turn)
 
         elif user_input in ["e", "E"] and not state.online_config.game_strt_event.is_set():
             if (state.player_action.dice_rolled == True and self.action == None) or state.dev_mode == True:
@@ -559,7 +585,7 @@ class refresh_board_class(utils.parent_class):
 
                     if state.player[state.player_turn]["$$$"] < 0: state.player_is_broke(state.player_turn)
                     
-                state.refresh_board()
+                self()
                 
             else: 
                 print("\n    === roll dice first and complete space-dependent action first ===\n\n    ", end = "")
@@ -575,7 +601,7 @@ class refresh_board_class(utils.parent_class):
 
             save_game_to_file(
                 "state.game_version", "state.players_playing", "state.player_turn", "state.player_action.doubles_count",
-                "state.dev_mode", "state.player_action.dice_rolled", "state.refresh_board.action", "state.player", "state.chance.values",
+                "state.dev_mode", "state.player_action.dice_rolled", "self.action", "state.player", "state.chance.values",
                 "state.chance.index", "state.community_chest.values", "state.community_chest.index"
             )
             self.action = "save notice"
@@ -588,7 +614,6 @@ class refresh_board_class(utils.parent_class):
             state.dev_mode = False
             state.house_total = 32
             state.hotel_total = 12
-            state.time_played = 0
             state.game_version = 0.7
             state.player_turn = None
 
@@ -635,7 +660,7 @@ class refresh_board_class(utils.parent_class):
             if state.online_config.game_strt_event.is_set():
                 send_data(f"propertyupdate:{state.prop_from_pos[state.player[state.player_turn]['pos']]}:{state.online_config.player_num}:{_prop['upgrade state']}")
 
-            state.refresh_board()
+            self()
 
         elif user_input in ["a", "A"] and self.action == "property":
             auctioned_property = state.prop_from_pos[state.player[state.player_turn]["pos"]]
@@ -665,12 +690,12 @@ class refresh_board_class(utils.parent_class):
             print("\n    === enter ID of player you wish to kick ([C]ancel) ===\n")
 
             for item in state.online_config.joined_clients:
-                print(f"    [{item[3]}] {item[0]}")
+                print(f"    [{item[2]}] {item[0]}")
             print("\n    ", end="")
 
         elif user_input == "devmode":
             state.dev_mode = True
-            state.refresh_board()
+            self()
 
         elif state.dev_mode == False:
             print("\n    === command not recognised ===\n\n    ", end = "")
@@ -685,7 +710,7 @@ class refresh_board_class(utils.parent_class):
             update_player_position(int(xx))
             update_player_position(state.player[int(x)]["last pos"], "remove")
             if state.player[int(x)]["pos"] == 40: state.player[int(x)]["status"] = "jail"
-            state.refresh_board()
+            self()
             state.player_action(int(x))
 
         elif user_input == "showplayerdict":
@@ -693,8 +718,8 @@ class refresh_board_class(utils.parent_class):
                 print(f"{i}: {state.player[i]}")
 
         elif user_input == "setdiceroll":
-            state.player_action.dice_value[1] = int(input("    === first dice value: "))
-            state.player_action.dice_value[2] = int(input("    === second dice value: "))
+            state.player_action.dice[0] = int(input("    === first dice value: "))
+            state.player_action.dice[1] = int(input("    === second dice value: "))
             state.player_action.move()
            
         elif user_input == "bankruptcy":
@@ -711,11 +736,7 @@ class refresh_board_class(utils.parent_class):
 
         elif user_input == "propertybid":
             auctioned_property = int(input("    === enter property number: "))
-
-            # since bidding will require 'state.player_turn' to change, this stores the proper player turn
-            state.display_property.true_player_turn = state.player_turn.index
-            state.display_property.action = "auction"
-            state.display_property(auctioned_property)
+            state.display_property(auctioned_property, bid=True)
 
         elif user_input == "showproplist":
             for i in state.property_data:
@@ -758,7 +779,7 @@ class refresh_board_class(utils.parent_class):
 
                         for _prop in colour_set: _prop["upgrade state"] = 2
                     xx = input("    === what property (commands: 'all', 'done'): ") 
-            state.refresh_board()
+            self()
 
         elif user_input == "forcechancecard":
             x = int(input("    === what player: "))
@@ -834,14 +855,7 @@ class refresh_board_class(utils.parent_class):
         super().disconnect_management(quitter)
         self()
 
-        if state.online_config.socket_type == "client":
-            index = state.online_config.joined_clients[2].index(quitter)
-            name = state.online_config.joined_clients[0][index]
-        else:
-            for item in state.online_config.joined_clients:
-                if item[3] == quitter:
-                    name = item[0]
-                    break
+        state.online_config.joined_clients[quitter - 1][0]
 
         print(f"=== {name} lost connection to game ===\n\n    ", end="")
 
@@ -849,7 +863,11 @@ class refresh_board_class(utils.parent_class):
         """increments the player turn, handles edge cases"""
 
         next(state.player_turn)
-        state.player_action.dice_rolled = False
+
+        # allows the player to roll again if their turn
+        if state.online_config.player_num == state.player_turn:
+            state.player_action.dice_rolled = False
+
         state.player_action.doubles_rolled = 0
 
         # when a player goes bankrupt, players alive are checked,
@@ -867,10 +885,11 @@ class refresh_board_class(utils.parent_class):
 
 class display_property_list_class(utils.parent_class):
     def __init__(self):
-        self.player = None
+        self.player: int = None
         self.allow_bankruptcy = False
+        self.action = None
         
-    def __call__(self, _player, clear = True, allow_bankruptcy = False):
+    def __call__(self, _player, clear = True, allow_bankruptcy = False, skip_animation = False):
         state.current_screen = self.__name__
 
         self.player = _player
@@ -897,7 +916,8 @@ class display_property_list_class(utils.parent_class):
         # this checks what stations the player owns and displays them first
         for i in [2, 10, 17, 25]:
             if state.property_data[i]["owner"] == _player:
-                sleep(150)
+                if not skip_animation: sleep(150)
+
                 _count += 1
                 print(f"    ║   [{_count}]  │ {state.property_data[i]['name']}", end = "")
                 
@@ -921,7 +941,8 @@ class display_property_list_class(utils.parent_class):
 
         for i in [7, 20]:
             if state.property_data[i]["owner"] == _player:
-                sleep(150)
+                if not skip_animation: sleep(150)
+
                 _count += 1
                 print(f"    ║   [{_count}]  │ {state.property_data[i]['name']}", end = "")
                 
@@ -945,7 +966,7 @@ class display_property_list_class(utils.parent_class):
             if state.property_data[i]["owner"] != _player or state.property_data[i]["type"] != "property":
                 continue
 
-            sleep(150)
+            if not skip_animation: sleep(150)
             _count += 1
             self.conversion_dictionary[_count] = i
             if _count >= 10:
@@ -998,30 +1019,45 @@ class display_property_list_class(utils.parent_class):
         prompt[0].append("Back")
         prompt[1].append(can_leave)
         prompt[2].append(6)
-        for i in create_button_prompts(prompt[0], prompt[1], prompt[2]):
+        for i in create_prompts(prompt[0], prompt[1], prompt[2]):
             print(i)
 
         if state.dev_mode != False: print(self.conversion_dictionary)
         print("\n    ", end="")
 
     def input_management(self, user_input):
-        if user_input in ["b", "B"]:
+        super().input_management(user_input)
+        if self.action == "confirm exit" and user_input in ["y", "Y"]:
+            if state.online_config.game_strt_event.is_set():
+                if state.online_config.player_num == state.trade_screen.player_1["player"]:
+                    p = state.trade_screen.player_2["player"]
+                else:
+                    p = state.trade_screen.player_1["player"]
+                send_data(f"whisper:{p}:decline trade")
+            
+            state.trade_screen.__init__()
+        
+        elif self.action == "confirm exit":
+            self.action = None
+            print("\n    ", end="")
+
+        elif user_input in ["b", "B"]:
 
             # checks that the player doesn't have negative cash,
             # and that no other players have negative cash
             if state.player[state.player_turn]["$$$"] < 0:
                 print("\n    === you must clear your debts before returning to the game ===\n\n    ", end = "")
+            elif state.trade_screen.is_trade:
+                    print("\n   === returning to board will cancel the trade. are you sure?\n")
+                    for line in create_prompts(["yes", "no"]): print(line)
+                    print("\n    ", end="")
+
+                    self.action = "confirm exit"
             else:
-                lock = False
-                for i in range(1, state.players_playing + 1):
-                    if state.player[i]["$$$"] < 0 and state.player[i]["status"] == "playing":
-                        state.player_is_broke(i)
-                        lock = True
-                        break
-                if lock == False: state.refresh_board()
-                
+                state.refresh_board()
+
         elif user_input in ["t", "T"]:
-            if state.trade_screen.is_trade == True:
+            if state.trade_screen.is_trade:
                 state.trade_screen.display_trade_window()
             else:
                 state.trade_screen(state.player_turn)
@@ -1046,19 +1082,18 @@ class display_property_list_class(utils.parent_class):
 
 class display_property_class(utils.parent_class):
     def __init__(self):
-        self.property = None
-        self.skipped_bids = 0
+        self.property: int = None
         self.bid_number = 0
         self.property_queue = []
-        self.action = None
-        self.action_2 = None
-        self.player_bid_turn = None
-
+        self.action: str = None
+        self.action_2: str = None
+        
+        self.player_bid_turn: better_iter = None
         self.player_bids = better_iter([
-            {"player": 1, "$$$": 0},
-            {"player": 2, "$$$": 0},
-            {"player": 3, "$$$": 0},
-            {"player": 4, "$$$": 0}
+            {"player": 1, "$$$": 0, "skipped?": False},
+            {"player": 2, "$$$": 0, "skipped?": False},
+            {"player": 3, "$$$": 0, "skipped?": False},
+            {"player": 4, "$$$": 0, "skipped?": False}
         ])
         self.notice = better_iter([
             "      ╔════════════════════════════════════════════════════════════════╗",
@@ -1066,7 +1101,7 @@ class display_property_class(utils.parent_class):
             "      ║                             NOTICE:                            ║",
             "      ║                                                                ║",
             "      ║   you can bid more than your current cash, and go into debt.   ║",
-            "      ║  however, at the end you will still have to find enough money  ║",
+            "      ║   however, after winning you will need to find enough funds.   ║",
             "      ║                                                                ║",
             "      ╚════════════════════════════════════════════════════════════════╝"
         ])
@@ -1098,7 +1133,7 @@ class display_property_class(utils.parent_class):
             self.property_queue = list(_prop_num)
 
             # ensures that it isn't resent halfway through an auction
-            if not self.player_bid_turn:
+            if self.player_bid_turn == None:
                 self.player_bid_turn = state.player_turn.copy()
 
                 # ensures that only playing players can play
@@ -1116,7 +1151,7 @@ class display_property_class(utils.parent_class):
             for prop in self.property_queue:
 
                 # isn't this cool, and inline if statement WITHIN a string:
-                print(f"    {state.state.property_data[prop]['name']} {(lambda: '(mortgaged)' if state.state.property_data[prop]['upgrade state'] == -1 else '')()}")
+                print(f"    {state.property_data[prop]['name']} {(lambda: '(mortgaged)' if state.property_data[prop]['upgrade state'] == -1 else '')()}")
             print()
 
         if bid: self.action = "auction"
@@ -1137,7 +1172,7 @@ class display_property_class(utils.parent_class):
         extra_space = ["", "", "", ""]
 
         self.colour_set = []
-        for prop in state.state.property_data:
+        for prop in state.property_data:
             if not ("colour set" in prop.keys() and "colour set" in state.property_data[self.property].keys()):
                 continue
 
@@ -1270,60 +1305,62 @@ class display_property_class(utils.parent_class):
         elif self.property == 7:
 
             # because electric company and water works are so different from the other cards, they have their own art
-            print(f"    ┌──────────────────────────────┐{bidding_notice()}")
-            print(f"    │             ____             │{bidding_notice()}")
-            print(f"    │ __       /¯¯    ¯¯\\       __ │{bidding_notice()}")
-            print(f"    │   ¯¯--  /  _    _  \\  --¯¯   │{bidding_notice()}")
-            print(f"    │        |   \\\\  //   |        │{bidding_notice()}")
-            print(f"    │  ----  |    \\\\//    |  ----  │{bidding_notice()}")
-            print(f"    │         \\    \\/    /         │{bidding_notice()}")
-            print(f"    │   __--   |   ||   |   --__   │{bidding_notice()}")
-            print(f"    │ ¯        \\   ||   /       ¯  │")
-            print(f"    │        /  \\======/  \\        │{display_bids()}")
-            print(f"    │     /     |======|     \\     │{display_bids()}")
-            print(f"    │           |======|           │{display_bids()}")
-            print(f"    │            ¯¯¯¯¯¯            │{display_bids()}")
-            print(f"    │       Electric Company       │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │   If one utility is owned,   │{display_bids()}")
-            print(f"    │    rent is 2 times amount    │{display_bids()}")
-            print(f"    │        shown on dice         │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │ If both utilities are owned, │{display_bids()}")
-            print("    │    rent is 4 times amount    │")
-            print("    │        shown on dice         │")
-            print("    │                              │")
-            print("    └──────────────────────────────┘")
+            print(f"""
+        ┌──────────────────────────────┐{bidding_notice()}
+        │           __----__           │{bidding_notice()}
+        │\x1b[33m __       \x1b[0m╱        \\       \x1b[33m__ \x1b[0m│{bidding_notice()}
+        │\x1b[33m   ¯¯--  \x1b[0m╱  \x1b[33m_    _\x1b[0m  \\  \x1b[33m--¯¯   \x1b[0m│{bidding_notice()}
+        │        │   \x1b[33m╲╲  ╱╱\x1b[0m   │        │{bidding_notice()}
+        │\x1b[33m  ────  \x1b[0m│    \x1b[33m╲╲╱╱\x1b[0m    │  \x1b[33m────  \x1b[0m│{bidding_notice()}
+        │         \\    \x1b[33m╲╱\x1b[0m    /         │{bidding_notice()}
+        │\x1b[33m   __--  \x1b[0m│    \x1b[33m││\x1b[0m    │  \x1b[33m--__   \x1b[0m│{bidding_notice()}
+        │\x1b[33m ¯        \x1b[0m\\   \x1b[33m││\x1b[0m   /       \x1b[33m¯  \x1b[0m│
+        │\x1b[33m        /  \x1b[0m\\======/  \x1b[33m\\        \x1b[0m│{display_bids()}
+        │\x1b[33m     /     \x1b[0m╞══════╡     \x1b[33m\\     \x1b[0m│{display_bids()}
+        │           ╞══════╡           │{display_bids()}
+        │            ¯¯¯¯¯¯            │{display_bids()}
+        │                              │{display_bids()}
+        │       Electric Company       │{display_bids()}
+        │                              │{display_bids()}
+        │                              │{display_bids()}
+        │  If one utility is owned:    │{display_bids()}
+        │       rent is 2 × dice roll  │{display_bids()}
+        │                              │{display_bids()}
+        │ If both utilities are owned: │{display_bids()}
+        │       rent is 4 × dice roll  │
+        │                              │
+        │                              │
+        └──────────────────────────────┘""")
 
         # waterworks
         elif self.property == 20:
-            print(f"    ┌──────────────────────────────┐{bidding_notice()}")
-            print(f"    │                              │{bidding_notice()}")
-            print(f"    │           ()━╤╤━()           │{bidding_notice()}")
-            print(f"    │      /¯\\     /\\              │{bidding_notice()}")
-            print(f"    │     | ( —————┴┴————————╮     │{bidding_notice()}")
-            print(f"    │      \\_/—————————————╮ │     │{bidding_notice()}")
-            print(f"    │                      │ │     │{bidding_notice()}")
-            print(f"    │                      |_|     │{bidding_notice()}")
-            print("    │                              │")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │         Water Works          │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │   If one utility is owned,   │{display_bids()}")
-            print(f"    │    rent is 2 times amount    │{display_bids()}")
-            print(f"    │        shown on dice         │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │                              │{display_bids()}")
-            print(f"    │ If both utilities are owned, │{display_bids()}")
-            print(f"    │    rent is 4 times amount    │{display_bids()}")
-            print(f"    │        shown on dice         │{display_bids()}")
-            print("    │                              │")
-            print("    │                              │")
-            print("    │                              │")
-            print("    └──────────────────────────────┘")
-
+            print(f"""
+        ┌──────────────────────────────┐{bidding_notice()}
+        │                              │{bidding_notice()}
+        │           ()━╤╤━()           │{bidding_notice()}
+        │      /¯\\     /\\              │{bidding_notice()}
+        │     | ( —————┴┴————————╮     │{bidding_notice()}
+        │      \\_/—————————————╮ │     │{bidding_notice()}
+        │                      │ │     │{bidding_notice()}
+        │                      |_|     │{bidding_notice()}
+        │                      \x1b[94m|||\x1b[0m     │
+        │                      \x1b[94m|||\x1b[0m     │{display_bids()}
+        │                      \x1b[94m|||\x1b[0m     │{display_bids()}
+        │                      \x1b[94m|||\x1b[0m     │{display_bids()}
+        │                      \x1b[94m|||\x1b[0m     │{display_bids()}
+        │                      \x1b[94m|||\x1b[0m     │{display_bids()}
+        │         Water Works  \x1b[94m|||\x1b[0m     │{display_bids()}
+        │                      \x1b[94m|||\x1b[0m     │{display_bids()}
+        │                       \x1b[94m\\\\\\\x1b[0m    │{display_bids()}
+        │  If one utility is owned\x1b[94m:\\\\\\\x1b[0m │{display_bids()}
+        │       rent is 2 × dice roll\x1b[94m||\x1b[0m│{display_bids()}
+        │                            \x1b[94m||\x1b[0m│{display_bids()}
+        │ If both utilities are owned:\x1b[94m|\x1b[0m│{display_bids()}
+        │       rent is 4 × dice roll \x1b[94m|\x1b[0m│
+        │                             \x1b[94m|\x1b[0m│
+        │                             \x1b[94m|\x1b[0m│
+        └──────────────────────────────┘""")
+                
         # all streets
         else:
             arrow = lambda i: '>' if state.property_data[self.property]["upgrade state"] == i else ' '
@@ -1429,17 +1466,11 @@ class display_property_class(utils.parent_class):
         if self.action_2 == "finished":
             print(f"\n    === player {self.player_bids[0]['player']} has won the bid, press [Enter] to continue ===\n\n    ", end = "")
 
-        elif self.action == "auction" and self.player_bids.list[self.player_bid_turn] != 0:
-            if self.action_2 == "final state.chance":
-                print(f"\n    === player {self.player_bid_turn}, now's your final state.chance to place a bid, or [S]kip ===\n\n    ", end = "")
-            else:
-                print(f"\n    === player {self.player_bid_turn}, place a bid or [S]kip ===\n\n    ", end = "")
+        elif self.action == "auction" and self.player_bids.list[self.player_bid_turn - 1] != 0:
+            print(f"\n    === player {self.player_bid_turn}, place a bid or [S]kip ===\n\n    ", end = "")
 
         elif self.action == "auction":
-            if self.action_2 == "final state.chance":
-                print(f"\n    === player {self.player_bid_turn}, now's your final state.chance to raise your bid, or [S]kip ===\n\n    ", end = "")
-            else:
-                print(f"\n    === player {self.player_bid_turn}, either raise your bid or [S]kip ===\n\n    ", end = "")
+            print(f"\n    === player {self.player_bid_turn}, either raise your bid or [S]kip ===\n\n    ", end = "")
 
         else:
             print()
@@ -1494,11 +1525,12 @@ class display_property_class(utils.parent_class):
             actions[0].append("Back")
             actions[1].append(True)
             actions[2].append(6)
-            for i in create_button_prompts(actions[0], actions[1], actions[2]): print(i)
+            for i in create_prompts(actions[0], actions[1], actions[2]): print(i)
 
         print("\n    ", end = "")
 
     def input_management(self, user_input):
+        super().input_management(user_input)
 
         def exit_bid(self):
             """resets bid variables, auctions next property if exists"""
@@ -1506,12 +1538,11 @@ class display_property_class(utils.parent_class):
             self.action = None
             self.action_2 = None
             self.bid_number = 0
-            self.skipped_bids = 0
             self.player_bids = better_iter([
-                {"player": 1, "$$$": None},
-                {"player": 2, "$$$": None},
-                {"player": 3, "$$$": None},
-                {"player": 4, "$$$": None}
+                {"player": 1, "$$$": 0, "skipped?": False},
+                {"player": 2, "$$$": 0, "skipped?": False},
+                {"player": 3, "$$$": 0, "skipped?": False},
+                {"player": 4, "$$$": 0, "skipped?": False}
             ])
 
             # removes property from queue
@@ -1533,12 +1564,12 @@ class display_property_class(utils.parent_class):
                 self(*self.property_queue, bid = True)
                 return # ensures program doesn't return to board
 
-            state.refresh_board()
+            state.refresh_board.action = None
 
         if self.action_2 == "finished":
             exit_bid(self)
 
-            state.refresh_board.action = None
+            # checks if a player has gone into debt to finance a bid
             broke_alert = False
             for i in range(1, state.players_playing + 1):
                 if state.player[i]["$$$"] < 0 and state.player[i]["status"] == "playing":
@@ -1552,6 +1583,11 @@ class display_property_class(utils.parent_class):
             try:
                 int(user_input)
 
+                # ensures 0 cannot be a valid bid, just skips
+                if int(user_input) == 0:
+                    user_input = "s"
+                    raise ValueError
+
             except ValueError:
 
                 # 's' is the only valid input
@@ -1559,24 +1595,25 @@ class display_property_class(utils.parent_class):
                     print("\n    === command not recognised. Please enter a number or [S]kip ===\n\n    ", end = "")
                     return
 
-                self.skipped_bids += 1
+                self.player_bids[self.player_bid_turn - 1]["skipped?"] = True
                 next(self.player_bid_turn)
                      
                  # ensures that only playing players can play
                 while state.player[self.player_bid_turn]["status"] == "bankrupt":
                     next(self.player_bid_turn)
-
-                # provides a state.chance for players change their minds
-                if self.skipped_bids == self.players_bidding:
-                    self.action_2 = "final state.chance"
-
+                
+                quitters = 0
                 # if no players want to buy the property
-                elif self.skipped_bids == self.players_bidding * 2:
+                for bid in self.player_bids:
+                    if bid["skipped?"]: quitters += 1
+
+                if quitters == self.players_bidding:
                     exit_bid(self)
+                    state.refresh_board()
                     return
                 
                 # if someone has won the bid
-                elif self.skipped_bids == self.players_bidding - 1 and self.bid_number > 0:
+                elif quitters == self.players_bidding - 1 and self.bid_number > 0:
                     self.player_bids.list = sorted(
                         self.player_bids.list,
                         key = lambda item: item["$$$"],
@@ -1585,200 +1622,206 @@ class display_property_class(utils.parent_class):
 
                     state.player[self.player_bids[0]["player"]]["$$$"] -= self.player_bids[0]["$$$"]
                     state.property_data[self.property]["owner"] = self.player_bids[0]["player"]
+                    state.property_data[self.property]["upgrade state"] = 1
                                    
                     # signifies that the auction is over
                     self.action_2 = "finished"
 
                 self(*self.property_queue, bid = True)
-                    
-            else:
+                return
 
-                # checks that the player has entered an higher bid
-                valid_bid = True
-                for bid in self.player_bids:
-                    if int(user_input) <= bid["$$$"]: valid_bid = False
+            # checks that the player has entered an higher bid
+            valid_bid = True
+            for bid in self.player_bids:
+                if int(user_input) <= bid["$$$"]: valid_bid = False
 
-                if not valid_bid:
-                    print(f"\n    === player {self.player_bid_turn} either raise your bid or [S]kip ===\n\n    ", end = "")
-                    return
+            if not valid_bid:
+                print(f"\n    === player {self.player_bid_turn} either raise your bid or [S]kip ===\n\n    ", end = "")
+                return
 
-                # finds relevant player and updates bid
-                for bid in self.player_bids:
-                    if bid["player"] == self.player_bid_turn:
-                        bid["$$$"] = int(user_input)
+            # finds relevant player and updates bid
+            self.player_bids.list[self.player_bid_turn - 1]["$$$"] = int(user_input)
 
+            next(self.player_bid_turn)
+
+            # lets everyone have another chance at bidding
+            for bid in self.player_bids:
+                bid["skipped?"] = False
+
+            # ensures that only playing players can play
+            while state.player[self.player_bid_turn]["status"] == "bankrupt" \
+                    or self.player_bids[self.player_bid_turn - 1]["skipped?"]:
                 next(self.player_bid_turn)
 
-                # ensures that only playing players can play
-                while state.player[self.player_bid_turn]["status"] == "bankrupt":
-                    next(self.player_bid_turn)
+            if self.bid_number < self.players_bidding: self.bid_number += 1
 
-                if self.bid_number < self.players_bidding: self.bid_number += 1
+            self.player_bids.list = sorted(
+                self.player_bids.list,
+                key = lambda item: item["$$$"],
+                reverse = True
+            )
 
-                self.skipped_bids = 0
+            self(*self.property_queue, bid = True)
 
-                self.player_bids.list = sorted(
-                    self.player_bids.list,
-                    key = lambda item: item["$$$"],
-                    reverse = True
-                )
+        elif user_input in ["b", "B"]:
 
-                self(*self.property_queue, bid = True)
+            # ensures most recently displayed player is shown
+            state.display_property_list(state.display_property_list.player, skip_animation=True)
+  
+        elif user_input in ["t", "T"]:
+            if state.property_data[self.property]["upgrade state"] > 2:
+                print("\n    === you cannot trade upgraded properties ===\n\n    ", end="")
+                return
+
+            if state.trade_screen.is_trade:
+                state.trade_screen.add_prop_offer(state.display_property.property)
+                self(self.property)
+                print("=== added to offer ===\n\n    ", end="")
+            else:
+                state.trade_screen(state.player_turn, self.property)
+
+        elif user_input in ["m", "M"]:
+            if state.property_data[self.property]["upgrade state"] in [1, 2]:
+                state.property_data[self.property]["upgrade state"] = -1
+                state.player[state.player_turn]["$$$"] += int(state.property_data[self.property]["street value"] / 2)
+                    
+                if state.online_config.game_strt_event.is_set():
+                    send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
+
+                state.display_property(self.property)
+
+            elif state.property_data[self.property]["upgrade state"] == -1:
+                print("\n    === property already mortgaged ===\n\n    ", end = "")
+
+            elif state.property_data[self.property]["upgrade state"] > 2:
+                print("\n    === you cannot mortgage an upgraded property. sell all houses first ===\n\n    ", end = "")
+
+        elif user_input in ["u", "U"]:
+
+            # unmortgaged properties trigger the exit conditon
+            if state.property_data[self.property]["upgrade state"] != -1:
+                print("\n    === property not mortgaged ===\n\n    ", end = "")
+                return
+
+            cost = (state.property_data[self.property]["street value"] / 2) * 1.1
+                    
+            # unmortgages the property if the player can afford it
+            if state.player[state.player_turn]["$$$"] < cost:
+                print("\n    === you cannot afford to unmortgage this property ===\n\n    ", end="")
+                return
+
+            state.player[state.player_turn]["$$$"] -= cost
+            state.player[state.player_turn]["$$$"] = int(state.player[state.player_turn]["$$$"])
+            state.property_data[self.property]["upgrade state"] = 1
+
+            if state.online_config.game_strt_event.is_set():
+                send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
+            self(self.property)
+
+        elif user_input in ["a", "A"] and state.property_data[self.property]["type"] == "property":
+
+            # if property is not eligible for upgrading
+            if not (2 <= state.property_data[self.property]["upgrade state"] < 8):
+                print("\n    === you cannot upgrade this property ===\n\n    ", end = "")
+                return
+
+            # if player cannot afford to upgrade
+            if state.player[state.property_data[self.property]["owner"]]["$$$"] < state.property_data[self.property]["house cost"]:
+                print("\n    === you cannot afford to buy an upgrade ===\n\n    ", end = "")
+                return
+
+            # if other properties in the colour set aren't upgraded at the same level
+            for prop in self.colour_set:
+                if prop["upgrade state"] < state.property_data[self.property]["upgrade state"]:
+                    print("\n    === other properties in this colour set have not been upgraded equally ===\n\n    ", end="")
+                    return
+                
+            # determines whether a house or hotel is needed and available
+            if state.property_data[self.property]["upgrade state"] < 7:
+                if state.house_total < 0:
+                    print("\n    === there are no more houses left. all 32 have been purchased ===\n\n    ", end="")
+                    return
+                state.house_total -= 1
+                var_change = "house" # so online sends update command for correct var
+            else:
+                if state.hotel_total < 0:
+                    print("\n    === there are no more hotels left. all 16 have been purchased ===\n\n    ", end="")
+                    return
+                state.hotel_total -= 1
+                var_change = "hotel"
+
+            # if exit conditions are passed, then the player can upgrade
+            state.player[state.property_data[self.property]["owner"]]["$$$"] -= state.property_data[self.property]["house cost"]
+            state.property_data[self.property]["upgrade state"] += 1
+
+            if state.online_config.game_strt_event.is_set():
+                send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
+                if var_change == "house":
+                    send_data(f"varupdate:house_total:{state.house_total}")
+                else:
+                    send_data(f"varupdate:hotel_total:{state.hotel_total}")
+            del var_change
+            self(self.property)
+
+        elif user_input in ["s", "S"] and state.property_data[self.property]["type"] == "property":
+
+            # if the property cannot be downgraded
+            if state.property_data[self.property]["upgrade state"] <= 2:
+                print("\n    === you cannot downgrade this property ===\n\n    ", end = "")
+                return
+
+            # ensures equal upgrades through the colour set
+            for prop in self.colour_set:
+                if prop["upgrade state"] > state.property_data[self.property]["upgrade state"]:
+                    print("\n    === other properties in this colour set have not been downgraded equally ===\n\n    ", end="")
+                    return
+
+            # adds the house/hotel back into the pool
+            if state.property_data[self.property]["upgrade state"] == 8:
+                state.hotel_total += 1
+                var_change = "hotel"
+            else:
+                state.house_total += 1
+                var_change = "house"
+
+            state.player[state.property_data[self.property]["owner"]]["$$$"] += state.property_data[self.property]["house cost"] / 2
+            state.property_data[self.property]["upgrade state"] -= 1
+
+            if state.online_config.game_strt_event.is_set():
+                send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
+                if var_change == "house":
+                    send_data(f"varupdate:house_total:{state.house_total}")
+                else:
+                    send_data(f"varupdate:hotel_total:{state.hotel_total}")
+            del var_change
+
+            self(self.property)
+
+        elif user_input in ["r", "R"] and state.trade_screen.is_trade:
+                
+            if not (self.property in state.trade_screen.player_1["props"] or self.property in state.trade_screen.player_2["props"]):
+                print("\n    === command not recognised ===\n\n    ", end="")
+                return
+
+            # removes the property from the appropriate player's trade
+            if self.property in state.trade_screen.player_1["props"]:
+                state.trade_screen.player_1["props"].remove(self.property)
+
+                if state.online_config.game_strt_event.is_set():
+                    send_data(f"whisper:{state.trade_screen.player_2['player']}:trade:rmv p:{self.property}")
+
+            elif self.property in state.trade_screen.player_2["props"]:
+                state.trade_screen.player_2["props"].remove(self.property)
+               
+                if state.online_config.game_strt_event.is_set():
+                    send_data(f"whisper:{state.trade_screen.player_1['player']}:trade:rmv p:{self.property}")
+
+            # alerts the user of the change
+            self(self.property)
+            print("=== removed from offer ===\n\n    ", end="")
 
         else:
-            if user_input in ["b", "B"]:
-
-                # ensures most recently displayed player is shown
-                state.display_property_list(state.display_property_list.state.player)
-  
-            elif user_input in ["t", "T"]:
-                if state.property_data[self.property]["upgrade state"] > 0:
-                    print("\n    === you cannot trade upgraded properties ===\n\n    ", end="")
-                    return
-
-                if state.trade_screen.is_trade:
-                    state.trade_screen.add_prop_offer(state.display_property.property)
-                    self(self.property)
-                    print("=== added to offer===\n\n    ", end="")
-                else:
-                    state.trade_screen(state.player_turn, self.property)
-
-            elif user_input in ["m", "M"]:
-                if state.property_data[self.property]["upgrade state"] in [1, 2]:
-                    state.property_data[self.property]["upgrade state"] = -1
-                    state.player[state.player_turn]["$$$"] += int(state.property_data[self.property]["street value"] / 2)
-                    
-                    if state.online_config.game_strt_event.is_set():
-                        send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
-
-                    state.display_property(self.property)
-
-                elif state.property_data[self.property]["upgrade state"] == -1:
-                    print("\n    === property already mortgaged ===\n\n    ", end = "")
-
-                elif state.property_data[self.property]["upgrade state"] > 2:
-                    print("\n    === you cannot mortgage an upgraded property. sell all houses first ===\n\n    ", end = "")
-
-            elif user_input in ["u", "U"]:
-
-                # unmortgaged properties trigger the exit conditon
-                if state.property_data[self.property]["upgrade state"] != -1:
-                    print("\n    === property not mortgaged ===\n\n    ", end = "")
-                    return
-
-                cost = (state.property_data[self.property]["street value"] / 2) * 1.1
-                    
-                # unmortgages the property if the player can afford it
-                if state.player[state.player_turn]["$$$"] < cost:
-                    print("\n    === you cannot afford to unmortgage this property ===\n\n    ", end="")
-                    return
-
-                state.player[state.player_turn]["$$$"] -= cost
-                state.player[state.player_turn]["$$$"] = int(state.player[state.player_turn]["$$$"])
-                state.property_data[self.property]["upgrade state"] = 1
-
-                if state.online_config.game_strt_event.is_set():
-                    send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
-                self(self.property)
-
-            elif user_input in ["a", "A"] and state.property_data[self.property]["type"] == "property":
-
-                # if property is not eligible for upgrading
-                if not (2 <= state.property_data[self.property]["upgrade state"] < 8):
-                    print("\n    === you cannot upgrade this property ===\n\n    ", end = "")
-                    return
-
-                # if player cannot afford to upgrade
-                if state.player[state.property_data[self.property]["owner"]]["$$$"] < state.property_data[self.property]["house cost"]:
-                    print("\n    === you cannot afford to buy an upgrade ===\n\n    ", end = "")
-                    return
-
-                # if other properties in the colour set aren't upgraded at the same level
-                for prop in self.colour_set:
-                    if prop["upgrade state"] < state.property_data[self.property]["upgrade state"]:
-                        print("\n    === other properties in this colour set have not been upgraded equally ===\n\n    ", end="")
-                        return
-                
-                # determines whether a house or hotel is needed and available
-                if state.property_data[self.property]["upgrade state"] < 7:
-                    if state.house_total < 0:
-                        print("\n    === there are no more houses left. all 32 have been purchased ===\n\n    ", end="")
-                        return
-                    state.house_total -= 1
-                    var_change = "house" # so online sends update command for correct var
-                else:
-                    if state.hotel_total < 0:
-                        print("\n    === there are no more hotels left. all 16 have been purchased ===\n\n    ", end="")
-                        return
-                    state.hotel_total -= 1
-                    var_change = "hotel"
-
-                # if exit conditions are passed, then the player can upgrade
-                state.player[state.property_data[self.property]["owner"]]["$$$"] -= state.property_data[self.property]["house cost"]
-                state.property_data[self.property]["upgrade state"] += 1
-
-                if state.online_config.game_strt_event.is_set():
-                    send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
-                    if var_change == "house":
-                        send_data(f"varupdate:house_total:{state.house_total}")
-                    else:
-                        send_data(f"varupdate:hotel_total:{state.hotel_total}")
-                del var_change
-                self(self.property)
-
-            elif user_input in ["s", "S"] and state.property_data[self.property]["type"] == "property":
-
-                # if the property cannot be downgraded
-                if state.property_data[self.property]["upgrade state"] <= 2:
-                    print("\n    === you cannot downgrade this property ===\n\n    ", end = "")
-                    return
-
-                # ensures equal upgrades through the colour set
-                for prop in self.colour_set:
-                    if prop["upgrade state"] > state.property_data[self.property]["upgrade state"]:
-                        print("\n    === other properties in this colour set have not been downgraded equally ===\n\n    ", end="")
-                        return
-
-                # adds the house/hotel back into the pool
-                if state.property_data[self.property]["upgrade state"] == 8:
-                    state.hotel_total += 1
-                    var_change = "hotel"
-                else:
-                    state.house_total += 1
-                    var_change = "house"
-
-                state.player[state.property_data[self.property]["owner"]]["$$$"] += state.property_data[self.property]["house cost"] / 2
-                state.property_data[self.property]["upgrade state"] -= 1
-
-                if state.online_config.game_strt_event.is_set():
-                    send_data(f"propertyupdate:{self.property}:{state.property_data[self.property]['owner']}:{state.property_data[self.property]['upgrade state']}")
-                    if var_change == "house":
-                        send_data(f"varupdate:house_total:{state.house_total}")
-                    else:
-                        send_data(f"varupdate:hotel_total:{state.hotel_total}")
-                del var_change
-
-                self(self.property)
-
-            elif user_input in ["r", "R"] and state.trade_screen.is_trade:
-                
-                if not (self.property in state.trade_screen.player_1["props"] or self.property in state.trade_screen.player_2["props"]):
-                    print("\n    === command not recognised ===\n\n    ", end="")
-                    return
-
-                # removes the property from the appropriate player's trade
-                if self.property in state.trade_screen.player_1["props"]:
-                    state.trade_screen.player_1["props"].remove(self.property)
-
-                elif self.property in state.trade_screen.player_2["props"]:
-                    state.trade_screen.player_2["props"].remove(self.property)
-               
-                # alerts the user of the change
-                self(self.property)
-                print("=== removed from offer ===\n\n    ", end="")
-
-            else:
-                print("\n    === command not recognised ===\n\n    ", end="")
+            print("\n    === command not recognised ===\n\n    ", end="")
 
     def disconnect_management(self, quitter):
         super().disconnect_management(quitter) # ignore I said to do last
@@ -1798,10 +1841,13 @@ def bankruptcy(_player: int | None = state.player_turn, cause = "bank" or "disco
     and displays win/game finished screen if applicable
     """
 
-    # ensures no key errors
+    # ensures no errors
     _player = int(_player)
 
-    if cause == "disconnected":
+    if state.online_config.socket_type == "host":
+        state.online_config.joined_clients[_player - 1][4] = False # disables socket
+
+    if cause in ["disconnected", "disconnect"]:
         state.player[_player]["status"] = "disconnected"
         cause = "bank"
     else:
@@ -1853,6 +1899,8 @@ def bankruptcy(_player: int | None = state.player_turn, cause = "bank" or "disco
 
         if state.online_config.game_strt_event.is_set():
             state.online_config.quit_async()
+        else:
+            quit()
 
     # finds next competing player, if player turn is bankrupt player
     while state.player[state.player_turn]["status"] in ("bankrupt", "disconnected"):
@@ -1940,6 +1988,8 @@ def bankruptcy(_player: int | None = state.player_turn, cause = "bank" or "disco
 
 class player_action_class(utils.parent_class):
     """allows players to move on the dice roll"""
+    cursor_pos_top = True
+
     def __init__(self):
 
         # all of the art for the dice rolling animation
@@ -1953,13 +2003,17 @@ class player_action_class(utils.parent_class):
         self.dice_image_frame[5] = ["│  o     o  │", "│     o     │", "│  o     o  │"]
         self.dice_image_frame[6] = ["│  o  o  o  │", "│           │", "│  o  o  o  │"]
 
-        self.dice_rolling_state = "off"
-
-        # so I can index die 1 as [1] and die 2 as [2]
-        self.dice_value = [None, 0, 0]
+        self.dice = [[0], [0]]
         self.dice_countdown = 0
         self.doubles_count = 0
         self.dice_rolled = False
+
+        self.dice_rolling_state = None
+        self.stop_flag = False
+        self.finished_event = asyncio.Event()
+
+        self.dice_task: asyncio.Task = None
+        self.input_task: asyncio.Task = None
 
         self.doubles_art = [
             r"✨    |¯¯¯\   /¯¯\  |¯||¯| |¯⁐¯\ |¯|   |¯¯¯| /¯¯¯|   ✨   ",
@@ -2110,84 +2164,146 @@ class player_action_class(utils.parent_class):
 
     def start_roll(self):
         """main entry to start dice roll animation"""
-        self.dice_rolling_state = 1 # starts first dice roll
-        self.dice_countdown = 10
 
-        self.dice_value[1] = randint(1, 6)
-        print("┌───────────┐")
-        print("    │           │")
-        print(f"    {self.dice_image_frame[self.dice_value[1]][0]}")
-        print(f"    {self.dice_image_frame[self.dice_value[1]][1]}")
-        print(f"    {self.dice_image_frame[self.dice_value[1]][2]}")
-        print("    │           │")
-        print("    └───────────┘")
+        async def wait_enter():
+            """a coroutine that completes once user presses enter"""
+            import sys
+            if name == "nt": # windows
+                import msvcrt
+                while True:
+                    if msvcrt.kbhit(): # if key pressed
+                        ch = msvcrt.getwch() # if pressed key == enter
+                        if ch == '\r' or ch == '\n':
+                            return
+                    await asyncio.sleep(0.05)
+            else: # unix (mac/linux)
+                loop = asyncio.get_running_loop()
+                fut = loop.create_future()
+                def _on_stdin():
+                    if not fut.done():
+                        fut.set_result(None)
+                    loop.remove_reader(sys.stdin)
+                loop.add_reader(sys.stdin, _on_stdin) # activates when enter pressed
+                await fut
 
-        # moves the cursor (text output location) to the middle of the die
-        print("\x1b[6F")
+        async def get_input():
+            if state.online_config.game_strt_event.is_set():
+                return
 
-        while self.dice_rolling_state != "off":
-            sleep(150)
-            self.dice_countdown -= 1
+            await asyncio.get_running_loop().run_in_executor(None, input)
+            print("\x1b[2F")
+            self.stop_flag = True # makes the dice start slowing down
 
-            if self.dice_rolling_state == 1:
+            # this enables the quick-finish for the dice
+            @coro_protection
+            async def get():
+                await wait_enter()
 
-                # generates random dice value, different to the last number
-                x = randint(1, 6)
-                while self.dice_value[1] == x: x = randint(1, 6)
-                self.dice_value[1] = x
+                self.dice_task.cancel()
+                if not self.cursor_pos_top:
+                    print("\x1b[8", end="", flush=True)
+                await dice(True)
 
-                # changes displayed value
-                for i in range(3): print(f"    {self.dice_image_frame[self.dice_value[1]][i]}")
-        
-                # moves the cursor back to the middle of the die
-                print("\x1b[4F")
+            # cancels both tasks after dice finish normally
+            @coro_protection
+            async def kill(target):
+                await self.finished_event.wait()
+                target.cancel()
 
-            elif self.dice_rolling_state == 2:
+            get_task = asyncio.Task(get())
+            kill_task = asyncio.Task(kill(get_task))
 
-                x = randint(1, 6)
-                while self.dice_value[2] == x: x = randint(1, 6)
-                self.dice_value[2] = x
+            await asyncio.gather(get_task, kill_task)
 
-                # since the 'doubles' text is next to the dice and not under them,
-                # the calculations need to be performed while the lines are getting printed
-                # different text appears if doubles are rolled to escape jail
-                if self.dice_value[2] == self.dice_value[1] and self.dice_countdown == 0:
-                    for i in range(3):
-                        print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}", end="", )
-                    
-                        if state.player[state.player_turn]["pos"] != 40: print(f"      {self.doubles_art[i]}")
-                        else: print(f"      {self.escaped_go_art[i]}")
+        @coro_protection
+        async def dice(final = False):
+            """contains animation of dice rolling and slowing down
+            final should only be set if player wants to interrupt animation"""
+            countdown = 6
+            if final: countdown = 1
 
-                else:
-                    for i in range(3):
-                        print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}")
-                
-                # moves the cursor back to the middle of the die
-                print("\x1b[4F")
+            self.dice = [[0],[0]]
+            print("\x1b[1F")
 
-            if self.dice_countdown == 0 and self.dice_rolling_state == 1:
-                self.dice_value[2] = randint(1, 6)
+            while countdown != 0:
+                if self.stop_flag:
+                    countdown -= 1
 
-                print("\x1b[3F")
+                self.dice[0].append(random.randint(1, 6))
+                self.dice[1].append(random.randint(1, 6))
+
+                # ensures values aren't the same as previous
+                if self.dice[0][1] == self.dice[0][0]:
+                    self.dice[0][1] -= 1
+                    if self.dice[0][1] == 0: self.dice[0][1] = 6
+
+                if self.dice[1][1] == self.dice[1][0]:
+                    self.dice[1][1] -= 1
+                    if self.dice[1][1] == 0: self.dice[1][1] = 6
+
+                # clears previous roll, now that it's been checked
+                self.dice[0].pop(0)
+                self.dice[1].pop(0)
+                self.cursor_pos_top = True
                 print("    ┌───────────┐   ┌───────────┐")
                 print("    │           │   │           │")
-                for i in range(3):
-                    print(f"    {self.dice_image_frame[self.dice_value[1]][i]}   {self.dice_image_frame[self.dice_value[2]][i]}")
+                print(f"    {self.dice_image_frame[self.dice[0][0]][0]}   {self.dice_image_frame[self.dice[1][0]][0]}")
+                print(f"    {self.dice_image_frame[self.dice[0][0]][1]}   {self.dice_image_frame[self.dice[1][0]][1]}")
+                print(f"    {self.dice_image_frame[self.dice[0][0]][2]}   {self. dice_image_frame[self.dice[1][0]][2]}")
                 print("    │           │   │           │")
                 print("    └───────────┘   └───────────┘")
-                print("\x1b[6F")
+                self.cursor_pos_top = False
+                if not self.stop_flag and not final:
+                    print("\n    === [Enter] to stop dice ===")
+                    print("\x1b[10F")
+                elif countdown == 0:
+                    print("\n    === [Enter] to continue ===")
+                else:
+                    print("\x1b[8F")
 
-                self.dice_rolling_state = 2
-                self.dice_countdown = 10
+                # ensures the final image doesn't have necessary delay
+                if not final:
+                    delay = 0.1 + (0.1 * (6 - countdown))
+                    await asyncio.sleep(delay)
 
-            elif self.dice_countdown == 0:
-                self.dice_rolling_state = "off"
+            self.finished_event.set()
+            """
+            roll_dice_task = asyncio.Task(roll_dice())
+            stop_task = asyncio.Task(stop())
+            await roll_dice_task
+            stop_task.cancel()
+            """            
 
-        # gives player time to check roll (after next logic)
-        print("\x1b[5E")
-        print("    === [Enter] to continue ===\n\n    ", end = "")
+        self.dice_coro = dice
 
-        state.refresh_board.action = "dice_roll_accept"
+        async def main():
+            self.dice_task = asyncio.Task(dice())
+            self.input_task = asyncio.Task(get_input())
+
+            await asyncio.gather(self.dice_task, self.input_task)
+
+            # converts list[list[int]] into list[int] for movement logic
+            self.dice = [self.dice[0][0], self.dice[1][0]]
+            state.refresh_board.action = "dice_roll_accept"
+
+            if state.online_config.game_strt_event.is_set():
+                state.sub_async_input_override = False
+                state.input_override_logic = None
+               
+            self.dice_rolling_state = None
+            self.stop_flag = False
+            self.finished_event = asyncio.Event()
+
+        # the dice rolling will also be called during online games,
+        # with active event loops already, making run() not allowed.
+        # if there's an existing event loop, a new task is created
+        if state.online_config.game_strt_event.is_set():
+            state.sub_async_input_override = True
+            state.input_override_logic = self.dice_roll_input
+
+            asyncio.get_running_loop().create_task(main())
+        else:
+            asyncio.run(main())
 
     def move(self):
         """start player movement around board, performs movement logic"""
@@ -2196,7 +2312,7 @@ class player_action_class(utils.parent_class):
         state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
 
         # increases the doubles streak the player has, or resets it to 0
-        if self.dice_value[1] == self.dice_value[2]:
+        if self.dice[0] == self.dice[1]:
             self.doubles_count += 1
         else:
             self.doubles_count = 0
@@ -2208,7 +2324,7 @@ class player_action_class(utils.parent_class):
             return
 
         # determines player movement length
-        self.player_roll_itr = iter(range(self.dice_value[1] + self.dice_value[2]))
+        self.player_roll_itr = iter(range(self.dice[0] + self.dice[1]))
 
         if state.player[state.player_turn]["status"] == "jail":
             if self.doubles_count == 0:
@@ -2229,7 +2345,7 @@ class player_action_class(utils.parent_class):
             return # stops movement and position change
 
         # this is adding the dice roll's value to the player's position
-        state.player[state.player_turn]["pos"] = (state.player[state.player_turn]["pos"] + self.dice_value[1] + self.dice_value[2])
+        state.player[state.player_turn]["pos"] = (state.player[state.player_turn]["pos"] + self.dice[0] + self.dice[1])
 
         # makes sure that the player's position is valid
         if state.player[state.player_turn]["pos"] >= 40:
@@ -2252,7 +2368,6 @@ class player_action_class(utils.parent_class):
 
                 state.player_action(state.player_turn)
                    
-                self.dice_rolling_state = "off"
                 if self.doubles_count in [0, 3]:
                     self.dice_rolled = True
 
@@ -2272,6 +2387,26 @@ class player_action_class(utils.parent_class):
 
                 sleep(500)
                 state.refresh_board()
+
+    async def dice_roll_input(self, user_input):
+        """used in asynchronous games where input is already monitored"""
+        
+        # if dice are rolling, starts slowing down
+        if self.dice_rolling_state == None:
+            print("\x1b[2F")
+            self.dice_rolling_state = "force finish"
+            self.stop_flag = True
+
+        # if dice are already slowing down, stops quickly
+        elif self.dice_rolling_state == "force finish":
+            self.dice_task.cancel()
+
+            print("\x1b[2F")
+
+            await self.dice_coro(True)
+
+            state.sub_async_input_override = False
+            state.input_override_logic = None
 
 
 class trade_screen_class(utils.parent_class):
@@ -2344,9 +2479,10 @@ class trade_screen_class(utils.parent_class):
                                 │             └──────────────────────────────────────────────┘
                                 └──────────────────────────────┘"""
 
-        self.action = None
+        self.action: str = None
+        self.action2: str = None
         self.is_trade = False
-        self.queued_prop = None
+        self.queued_prop: int = None
         self.curr_player = self.player_1
 
     def __call__(self, player_: int | None = state.player_turn, queued_prop: int | None = None):
@@ -2372,7 +2508,6 @@ class trade_screen_class(utils.parent_class):
         state.current_screen = self.__name__
 
         self.other_players = []
-        self.spacing = []
 
         print("    ╔════════════════════════════════════════════════════════════════╗")
         print("    ║                                                                ║")
@@ -2381,18 +2516,23 @@ class trade_screen_class(utils.parent_class):
         print("    ╚════════════════════════════════════════════════════════════════╝")
         print()
 
+        names = ["1st player", "2nd player", "3rd player", "4th player"]
+        spacing = []
+
         # gets the other players, adds them as available options
-        for player_ in state.player.keys():
-            if player_ != self.player_1["player"]: 
-                self.other_players.append(str(player_))
-                self.spacing.append(3)
+        for i in range(state.players_playing):
+            if i + 1 != player_:
+                self.other_players.append(names[i])
+                spacing.append(3)
 
-        self.other_players.append("Back")
-        self.spacing.append(6)
-        self.spacing[0] = 4
+        spacing[0] = 4
+        spacing.append(6)
 
-        for i in create_button_prompts(self.other_players, spacing = self.spacing): print(i)
+        for i in create_prompts(self.other_players + ["back"], spacing = spacing): print(i)
         print("\n    ", end = "")
+
+        # ensures logic only compares numbers
+        self.other_players = [_str[0] for _str in self.other_players]
 
     def display_trade_window(self):
         """displays the current player offers"""
@@ -2405,10 +2545,24 @@ class trade_screen_class(utils.parent_class):
         self.action = "offer screen"
         clear_screen()
         print()
-        print("    ╔═══════════════════════════════╗ ╔═══════════════════════════════╗")
-        print("    ║                               ║ ║                               ║")
-        print(f"    ║     {tick("1")} PLAYER {self.player_1['player']} OFFER:        ║ ║     {tick("2")} PLAYER {self.player_2['player']} OFFER:        ║")
-        print("    ║                               ║ ║                               ║")
+        print("    ╔═══════════════════════════════════╗ ╔═══════════════════════════════════╗")
+        print("    ║                                   ║ ║                                   ║")
+        if state.online_config.game_strt_event.is_set():
+            player = state.online_config.joined_clients[self.player_1['player'] - 1][0]
+            extra_space = ["", ""]
+            for i in range((20 - wcswidth(player)) // 2):
+                extra_space[0] += " "
+
+            player2 = state.online_config.joined_clients[self.player_2['player'] - 1][0]
+            for i in range((20 - wcswidth(player2)) // 2):
+                extra_space[1] += " "
+
+            extra_extra = lambda x: " " if wcswidth(x) % 2 == 0 else ""
+
+            print(f"    ║{extra_space[0]}{tick("1")} {player}'s OFFER: {extra_extra(player)} {extra_space[0]}║ ║{extra_space[1]}{tick("2")} {player2}'s OFFER: {extra_extra(player2)} {extra_space[1]}║")
+        else:
+            print(f"    ║       {tick("1")} PLAYER {self.player_1['player']} OFFER:          ║ ║       {tick("2")} PLAYER {self.player_2['player']} OFFER:          ║")
+        print("    ║                                   ║ ║                                   ║")
 
         extra_space = ["", ""]
         for i in range(28 - len(str(self.player_1["$$$"]))):
@@ -2417,10 +2571,10 @@ class trade_screen_class(utils.parent_class):
         for i in range(28 - len(str(self.player_2["$$$"]))):
             extra_space[1] += " "
 
-        print(f"    ║ ${self.player_1['$$$']}{extra_space[0]} ║ ║ ${self.player_2['$$$']}{extra_space[1]} ║")
-        print("    ║                               ║ ║                               ║")
+        print(f"    ║   ${self.player_1['$$$']}{extra_space[0]}   ║ ║   ${self.player_2['$$$']}{extra_space[1]}   ║")
+        print("    ║                                   ║ ║                                   ║")
                
-        # ands extra space between the properties and the border
+        # adds extra space between the properties and the border
         add_bottom_line = False
 
         # prints offered properties, space is left blank if run out
@@ -2432,7 +2586,6 @@ class trade_screen_class(utils.parent_class):
             extra_space = ["", ""]
             is_mortgaged = [" ", " "]
             property_ = ["", ""]
-            seperator = ["│","│"]
 
             # attempts to display a new line with the players' properties.
             # if one has more than another, the space is blank
@@ -2441,7 +2594,6 @@ class trade_screen_class(utils.parent_class):
             except IndexError:
                 extra_space[0] = "                     "
                 property_[0] = ""
-                seperator[0] = " "
             else:
                 property_[0] = prop_["name"]
                 for ii in range(21 - len(prop_["name"])):
@@ -2456,7 +2608,6 @@ class trade_screen_class(utils.parent_class):
             except IndexError:
                 extra_space[1] = "                     "
                 property_[1] = ""
-                seperator[1] = " "
             else:
                 property_[1] = prop_["name"]
                 for ii in range(21 - len(prop_["name"])):
@@ -2465,29 +2616,37 @@ class trade_screen_class(utils.parent_class):
                 if prop_["upgrade state"] == -1:
                     is_mortgaged[1] = "M"
                 
-            print(f"    ║ {property_[0]}{extra_space[0]} {seperator[0]} {is_mortgaged[0]}     ║ ║ {property_[1]}{extra_space[1]} {seperator[1]} {is_mortgaged[1]}     ║")
+            print(f"    ║   {property_[0]}{extra_space[0]} {is_mortgaged[0]}         ║ ║   {property_[1]}{extra_space[1]} {is_mortgaged[1]}         ║")
 
             if add_bottom_line:
-                print("    ║                               ║ ║                               ║")
+                print("    ║                                   ║ ║                                   ║")
 
-        print("    ╚═══════════════════════════════╝ ╚═══════════════════════════════╝")
+        print("    ╚═══════════════════════════════════╝ ╚═══════════════════════════════════╝")
         print()
         
-        props = False
+        name = ["Offer money", "Properties", "", "Accept trade", "Cancel"]
+        bools = [True, False, True, True, True]
+        space = [4, 3, 3, 3, 6]
+
         for i in state.property_data:
-            if i["owner"] == self.curr_player["player"]: props = True
+            if i["owner"] == self.curr_player["player"]: 
+               bools[1] = True
+               break
 
         if self.curr_player == self.player_1:
-            _prompt = f"Swap to P{self.player_2['player']}"
+            name[2] = f"Swap to P{self.player_2['player']}"
         else:
-            _prompt = f"Swap to P{self.player_1['player']}"
+            name[2] = f"Swap to P{self.player_1['player']}"
 
-        for i in create_button_prompts(
-                ["Offer money", "Properties", _prompt, "Accept trade", "Cancel"],
-                [True, props, True, True, True],
-                [4, 3, 3, 3, 6]
-            ):
+        # online trading doesn't need swap players button
+        if state.online_config.game_strt_event.is_set():
+            name.pop(2)
+            bools.pop(2)
+            space.pop(2)
+
+        for i in create_prompts(name, bools, space):
             print(i)
+
         print("\n    ", end = "")
 
     def add_prop_offer(self, _property):
@@ -2497,8 +2656,15 @@ class trade_screen_class(utils.parent_class):
         """
         if state.property_data[_property]["owner"] == self.player_1["player"]:
             self.player_1["props"].append(_property)
+
+            if state.online_config.game_strt_event.is_set():
+                send_data(f"whisper:{self.player_2['player']}:trade:add p:{_property}")
+
         elif state.property_data[_property]["owner"] == self.player_2["player"]:
-            self.player_2["props"].append(_property) 
+            self.player_2["props"].append(_property)
+
+            if state.online_config.game_strt_event.is_set():
+                send_data(f"whisper:{self.player_1['player']}:trade:add p:{_property}")
 
     def trade_completed(self):
         """displays trade confirmation and handles transferring logic"""
@@ -2523,58 +2689,13 @@ class trade_screen_class(utils.parent_class):
         state.player[self.player_2["player"]]["$$$"] -= self.player_2["$$$"]
 
         # updates the properties
-        # (I know this is disgustingly long and poorly coded)
         for player_prop in self.player_1["props"]:
             state.property_data[player_prop]["owner"] = self.player_2["player"]  
-            if state.property_data[player_prop]["type"] == "station":
-                continue
-
-            colour_set = []
-
-            for sub_prop in self.player_1["props"]:
-                if not ("colour set" in state.property_data[sub_prop].keys() and "colour set" in state.property_data[player_prop].keys()):
-                    continue
-
-                if state.property_data[sub_prop]["colour set"] == state.property_data[player_prop]["colour set"]:
-                    colour_set.append(sub_prop)
-                         
-            # ensures that if all properties in a colour set are traded,
-            # they keep relevant upgrade state, otherwise return to default
-            if (len(colour_set) == 3 and state.property_data[player_prop]["colour set"] not in [0, 7]) \
-                or (len(colour_set) == 2 and state.property_data[player_prop]["colour set"] in [0, 7]):
-
-                for _prop in colour_set:
-                    if _prop["upgrade state"] != -1:
-                        _prop["upgrade state"] = 2
-            else:
-                for _prop in colour_set:
-                    if _prop["upgrade state"] == 2:
-                        _prop["upgrade state"] = 1
        
         for player_prop in self.player_2["props"]:
-            state.property_data[player_prop]["owner"] = self.player_1["player"]  
-            if state.property_data[player_prop]["type"] == "station":
-                continue
+            state.property_data[player_prop]["owner"] = self.player_1["player"]
 
-            colour_set = []
-
-            for sub_prop in self.player_1["props"]:
-                if not ("colour set" in state.property_data[sub_prop].keys() and "colour set" in state.property_data[player_prop].keys()):
-                    continue
-
-                if state.property_data[sub_prop]["colour set"] == state.property_data[player_prop]["colour set"]:
-                    colour_set.append(sub_prop)
-                         
-            if (len(colour_set) == 3 and state.property_data[player_prop]["colour set"] not in [0, 7]) \
-                or (len(colour_set) == 2 and state.property_data[player_prop]["colour set"] in [0, 7]):
-
-                for _prop in colour_set:
-                    if _prop["upgrade state"] != -1:
-                        _prop["upgrade state"] = 2
-            else:
-                for _prop in colour_set:
-                    if _prop["upgrade state"] == 2:
-                        _prop["upgrade state"] = 1
+        repair_property_states()
         
         self.is_trade = False
 
@@ -2582,17 +2703,9 @@ class trade_screen_class(utils.parent_class):
         # hence player_1/2 isn't cleared yet)
 
     def input_management(self, user_input):
-        if user_input in ["c", "C"]:
+        super().input_management(user_input)
 
-            # clears player offers
-            self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
-            self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
-            self.is_trade = False
-            self.action = None
-
-            state.refresh_board()
-
-        elif self.action == "player select":
+        if self.action == "player select":
             try:
                 int(user_input)
             except ValueError:
@@ -2624,9 +2737,11 @@ class trade_screen_class(utils.parent_class):
             else:
                 if user_input in self.other_players:
                     if state.online_config.game_strt_event.is_set():
-                        send_data(f"traderequest:{user_input}")
+                        send_data(f"whisper:{user_input}:traderequest")
                         self.action = "await online accept"
+                        print("\n    === waiting for player response ===\n\n    ", end="")
                         return
+
                     self.player_2["player"] = int(user_input)
                     self.action = None
                     self.is_trade = True
@@ -2636,7 +2751,7 @@ class trade_screen_class(utils.parent_class):
 
                 elif int(user_input) == self.player_1["player"]: 
                     print("\n    === you can't trade with yourself! ===\n\n")
-                    for i in create_button_prompts(["Pleeeeeeease", "Ok"]): print(i)
+                    for i in create_prompts(["Pleeeeeeease", "Ok"]): print(i)
                     print("\n    ", end="")
                     self.action2 = "message"
 
@@ -2660,7 +2775,7 @@ class trade_screen_class(utils.parent_class):
                 else:
                     print("\n    === you have no properties to view ===\n\n    ", end = "")
 
-            elif user_input in ["s", "S"]:
+            elif user_input in ["s", "S"] and not state.online_config.game_strt_event.is_set():
                 if self.curr_player == self.player_1:
                     self.curr_player = self.player_2
                 else:
@@ -2668,19 +2783,45 @@ class trade_screen_class(utils.parent_class):
                 self.display_trade_window()
 
             elif user_input in ["a", "A"]:
+                
                 # marks the user as having accepted, switches to other player
                 if self.curr_player == self.player_1:
                     self.player_1["accepted?"] = True
-                    self.curr_player = self.player_2
+                    
+                    if state.online_config.game_strt_event.is_set(): # any value becomes True
+                        send_data(f"whisper:{state.trade_screen.player_2['player']}:trade:accept:ඞ")
+                    else:
+                        self.curr_player = self.player_2
                 else: 
                     self.player_2["accepted?"] = True                    
-                    self.curr_player = self.player_1
+                    
+                    if state.online_config.game_strt_event.is_set(): # any value becomes True
+                        send_data(f"whisper:{state.trade_screen.player_1['player']}:trade:accept:ඞ")
+                    else:
+                        self.curr_player = self.player_2
 
-                if self.curr_player["accepted?"] == True:
+                if self.player_1["accepted?"] and self.player_2["accepted?"]:
                     self.trade_completed()
                 else:
                     self.display_trade_window()
 
+            elif user_input in ["c", "C"]:
+
+                if state.online_config.game_strt_event.is_set():
+                    if self.curr_player == self.player_1:
+                        x = self.player_2["player"]
+                    else:
+                        x = self.player_1["player"]
+
+                    send_data(f"whisper:{x}:decline trade")
+
+                # clears player offers
+                self.player_1 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+                self.player_2 = {"player": None, "$$$": 0, "props": [], "accepted?": False}
+                self.is_trade = False
+                self.action = None
+
+                state.refresh_board()
             else:
                 print("\n    === command not recognised ===\n\n    ", end = "")
                     
@@ -2690,6 +2831,15 @@ class trade_screen_class(utils.parent_class):
                     self.player_1["$$$"] = int(user_input)
                 else:
                     self.player_2["$$$"] = int(user_input)
+
+                if int(user_input) != 0 and state.online_config.game_strt_event.is_set():
+                    other_p = lambda: self.player_2['player'] if self.curr_player == self.player_1 else self.player_1['player']
+                    send_data(f"whisper:{other_p()}:trade:$:{self.curr_player['$$$']}")
+                    pass
+                
+                self.player_1["accepted?"] = False
+                self.player_2["accepted?"] = False
+
                 self.display_trade_window()
              
             except ValueError:
