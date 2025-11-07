@@ -62,18 +62,26 @@ class chance_class(utils.parent_class):
         drawn_card = self.values[self.index]
 
         if drawn_card == 0:
+            "Advance to go (collect $200)"
+
+            # updates position and money
             state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
             state.player[state.player_turn]["pos"] = 0
             state.player[state.player_turn]["$$$"] += 200
+
+            # updates displayed text + icons
+            state.refresh_board.passed_go = True
             utils.update_player_position(state.player[state.player_turn]["pos"])
             utils.update_player_position(state.player[state.player_turn]["last pos"], "remove")
 
         elif drawn_card == 1:
+            "Advance to Trafalgar Square. If you pass go, collect $200"
             state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
             state.player[state.player_turn]["pos"] = 24
 
             if state.player[state.player_turn]["last pos"] > 24:
                 state.player[state.player_turn]["$$$"] += 200
+                state.refresh_board.passed_go = True
             state.player_action(state.player_turn)
             utils.update_player_position(state.player[state.player_turn]["pos"])
             utils.update_player_position(state.player[state.player_turn]["last pos"], "remove")
@@ -136,12 +144,7 @@ class chance_class(utils.parent_class):
             utils.update_player_position(state.player[state.player_turn]["last pos"], "remove")
 
         elif drawn_card == 8:
-            state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
-            state.player[state.player_turn]["pos"] = 40
-            state.player[state.player_turn]["status"] = "jail"
-            utils.update_player_position(state.player[state.player_turn]["pos"])
-            utils.update_player_position(state.player[state.player_turn]["last pos"], "remove")
-            state.player_action.dice_rolled = True
+            state.player_action.send_to_jail()
             
         elif drawn_card == 9:
             state.player[state.player_turn]["$$$"] -= ((state.player[state.player_turn]["house total"] * 25) + (state.player[state.player_turn]["hotel total"] * 100))
@@ -149,9 +152,19 @@ class chance_class(utils.parent_class):
                 state.player_is_broke(state.player_turn)
 
         elif drawn_card == 10:
+            "Take a trip to Kings Cross Station. If you pass go, collect $200.",
+
+            # updates position
             state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
             state.player[state.player_turn]["pos"] = 5
+
+            # gives player + $200 for passing GO
+            state.player[state.player_turn]["$$$"] += 200
+            state.refresh_board.passed_go = True
+
             state.player_action(state.player_turn)
+           
+            # updates displayed_position
             utils.update_player_position(state.player[state.player_turn]["pos"])
             utils.update_player_position(state.player[state.player_turn]["last pos"], "remove")
 
@@ -258,11 +271,7 @@ class community_chest_class(utils.parent_class):
             state.player[state.player_turn]["jail passes"] += 1
 
         elif drawn_card == 5:
-            state.player[state.player_turn]["last pos"] = state.player[state.player_turn]["pos"]
-            state.player[state.player_turn]["pos"] = 40    
-            state.player[state.player_turn]["status"] = "jail"
-            utils.update_player_position(state.player[state.player_turn]["pos"])
-            utils.update_player_position(state.player[state.player_turn]["last pos"], "remove")
+            state.player_action.send_to_jail()
 
         elif drawn_card == 6:
             state.player[state.player_turn]["$$$"] += 100

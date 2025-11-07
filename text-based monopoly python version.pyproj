@@ -26,11 +26,15 @@
     <Compile Include="cards.py" />
     <Compile Include="game.py" />
     <Compile Include="main.py" />
+    <Compile Include="online.py" />
     <Compile Include="utils.py" />
     <Compile Include="state.py" />
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="Global|PythonCore|3.13" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="state.pyi" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
