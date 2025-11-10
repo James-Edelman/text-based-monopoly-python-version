@@ -139,7 +139,6 @@ class refresh_board_class(utils.parent_class):
              "  / /| |  ", " / / | |  ", "|  ‾‾   ‾|",
              " ‾‾‾‾| |‾ ", "     | |  ", "     |_| th "]
         ]
-        self.msg_lock = False
 
     def __call__(self):
         def display_money(position: int, alt_position: int | None = 0):
@@ -665,7 +664,7 @@ class refresh_board_class(utils.parent_class):
         elif user_input in ["a", "A"] and self.action == "property":
             auctioned_property = state.prop_from_pos[state.player[state.player_turn]["pos"]]
             if state.online_config.game_strt_event.is_set():
-                send_data(f"auctionstart:{auctioned_property}")
+                send_data(f"auctionstart:[{auctioned_property}]")
             state.display_property(auctioned_property, bid = True)
 
         elif user_input in ["g", "G"] and state.player[state.player_turn]["status"] == "jail":
@@ -1087,6 +1086,7 @@ class display_property_class(utils.parent_class):
         self.property_queue = []
         self.action: str = None
         self.action_2: str = None
+        self.countdown = 5
         
         self.player_bid_turn: better_iter = None
         self.player_bids = better_iter([
@@ -1146,6 +1146,12 @@ class display_property_class(utils.parent_class):
                     if _player[1]["status"] not in ("bankrupt", "disconnected"):
                         self.players_bidding += 1
 
+                # starts the countdown if online
+                if state.online_config.game_strt_event.is_set():
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self.online_auction_timeout())
+
+        # displays the auction queue
         if len(_prop_num) > 1:
             print("    === auction queue ===\n")
             for prop in self.property_queue:
@@ -1463,14 +1469,16 @@ class display_property_class(utils.parent_class):
 
             print("    └──────────────────────────────┘")
 
+        player = state.online_config.player_num if state.online_config.game_strt_event.is_set() else self.player_bid_turn
+
         if self.action_2 == "finished":
             print(f"\n    === player {self.player_bids[0]['player']} has won the bid, press [Enter] to continue ===\n\n    ", end = "")
 
         elif self.action == "auction" and self.player_bids.list[self.player_bid_turn - 1] != 0:
-            print(f"\n    === player {self.player_bid_turn}, place a bid or [S]kip ===\n\n    ", end = "")
-
+                print(f"\n    === player {player}, place a bid or [S]kip ===\n\n    ", end = "")
+                
         elif self.action == "auction":
-            print(f"\n    === player {self.player_bid_turn}, either raise your bid or [S]kip ===\n\n    ", end = "")
+            print(f"\n    === player {player}, either raise your bid or [S]kip ===\n\n    ", end = "")
 
         else:
             print()
@@ -1527,57 +1535,65 @@ class display_property_class(utils.parent_class):
             actions[2].append(6)
             for i in create_prompts(actions[0], actions[1], actions[2]): print(i)
 
+        if state.dev_mode and self.action == "auction":
+            print(self.player_bids.__repr__())
+            print(f"{self.player_bid_turn=}")
+            print(f"{self.bid_number=}")
+
         print("\n    ", end = "")
+
+    def exit_bid(self):
+        """resets bid variables, auctions next property if queue exists"""
+
+        self.action = None
+        self.action_2 = None
+        self.bid_number = 0
+        self.countdown = 5
+
+        # checks if a player has gone into debt to finance a bid
+        broke_player_flag = state.player[self.player_bids[0]["player"]]["$$$"] < 0
+        broke_player = state.player[self.player_bids[0]["player"]]
+
+        self.player_bids = better_iter([
+            {"player": 1, "$$$": 0, "skipped?": False},
+            {"player": 2, "$$$": 0, "skipped?": False},
+            {"player": 3, "$$$": 0, "skipped?": False},
+            {"player": 4, "$$$": 0, "skipped?": False}
+        ])
+
+        # removes property from queue
+        self.property_queue.pop(0)
+
+        # clears the turn counter to ensure a new copy is made next call
+        self.player_bid_turn = None
+
+        # checks if there are any items within the list
+        if self.property_queue:
+
+            # if there are more properties in the queue,
+            # the next one is auctioned
+            self.property = self.property_queue[0]
+            self.action = "auction"
+
+            # since there could only be one extra property,
+            # bid is explicitly set
+            self(*self.property_queue, bid = True)
+            return # ensures program doesn't return to board
+
+        state.refresh_board.action = None
+
+        if broke_player_flag:
+            state.player_is_broke(broke_player)
+        elif state.trade_screen.is_trade:
+            state.trade_screen.display_trade_window()
+        else:
+            state.refresh_board()
 
     def input_management(self, user_input):
         super().input_management(user_input)
 
-        def exit_bid(self):
-            """resets bid variables, auctions next property if exists"""
-
-            self.action = None
-            self.action_2 = None
-            self.bid_number = 0
-            self.player_bids = better_iter([
-                {"player": 1, "$$$": 0, "skipped?": False},
-                {"player": 2, "$$$": 0, "skipped?": False},
-                {"player": 3, "$$$": 0, "skipped?": False},
-                {"player": 4, "$$$": 0, "skipped?": False}
-            ])
-
-            # removes property from queue
-            self.property_queue.pop(0)
-
-            # clears the turn counter to ensure a new copy is made next call
-            self.player_bid_turn = None
-
-            # checks if there are any items within the list
-            if self.property_queue:
-
-                # if there are more properties in the queue,
-                # the next one is auctioned
-                self.property = self.property_queue[0]
-                self.action = "auction"
-
-                # since there could only be one extra property,
-                # bid is explicitly set
-                self(*self.property_queue, bid = True)
-                return # ensures program doesn't return to board
-
-            state.refresh_board.action = None
-
         if self.action_2 == "finished":
-            exit_bid(self)
-
-            # checks if a player has gone into debt to finance a bid
-            broke_alert = False
-            for i in range(1, state.players_playing + 1):
-                if state.player[i]["$$$"] < 0 and state.player[i]["status"] == "playing":
-                    state.player_is_broke(i)
-                    broke_alert = True
-                    break
-
-            if broke_alert == False: state.refresh_board()
+            self.exit_bid()
 
         elif self.action == "auction":
             try:
@@ -1595,6 +1611,10 @@ class display_property_class(utils.parent_class):
                     print("\n    === command not recognised. Please enter a number or [S]kip ===\n\n    ", end = "")
                     return
 
+                if state.online_config.game_strt_event.is_set():
+                    print("\n    === skipping does nothing when online. you all bid at the same time ===\n\n    ", end="")
+                    return
+
                 self.player_bids[self.player_bid_turn - 1]["skipped?"] = True
                 next(self.player_bid_turn)
                      
@@ -1603,12 +1623,13 @@ class display_property_class(utils.parent_class):
                     next(self.player_bid_turn)
                 
                 quitters = 0
-                # if no players want to buy the property
+
                 for bid in self.player_bids:
                     if bid["skipped?"]: quitters += 1
 
+                # if no players want to buy the property
                 if quitters == self.players_bidding:
-                    exit_bid(self)
+                    self.exit_bid()
                     state.refresh_board()
                     return
                 
@@ -1640,7 +1661,11 @@ class display_property_class(utils.parent_class):
                 return
 
             # finds relevant player and updates bid
-            self.player_bids.list[self.player_bid_turn - 1]["$$$"] = int(user_input)
+            if state.online_config.game_strt_event.is_set():
+                self.player_bids[state.online_config.player_num - 1]["$$$"] = int(user_input)
+                send_data(f"auction:{user_input}")
+            else:
+                self.player_bids[self.player_bid_turn - 1]["$$$"] = int(user_input)
 
             next(self.player_bid_turn)
 
@@ -1698,7 +1723,7 @@ class display_property_class(utils.parent_class):
 
         elif user_input in ["u", "U"]:
 
-            # unmortgaged properties trigger the exit conditon
+            # unmortgaged properties trigger the exit condition
             if state.property_data[self.property]["upgrade state"] != -1:
                 print("\n    === property not mortgaged ===\n\n    ", end = "")
                 return
@@ -1824,7 +1849,7 @@ class display_property_class(utils.parent_class):
             print("\n    === command not recognised ===\n\n    ", end="")
 
     def disconnect_management(self, quitter):
-        super().disconnect_management(quitter) # ignore I said to do last
+        super().disconnect_management(quitter)
 
         if self.action == "auction":
 
@@ -1833,6 +1858,27 @@ class display_property_class(utils.parent_class):
             for _player in state.player.items():
                 if _player[1]["status"] not in ("bankrupt", "disconnected"):
                     self.players_bidding += 1
+
+    async def online_auction_timeout(self):
+        """online auctions finish after no one bids for 5 seconds"""
+        while self.countdown > 0:
+            await asyncio.sleep(1)
+            self.countdown -= 1
+            if self.countdown == 3:
+                print("\n    === 3 seconds left to bid ===\n\n    ", end="")
+
+        self.player_bids.list = sorted(
+            self.player_bids.list,
+            key = lambda item: item["$$$"],
+            reverse = True
+        )
+
+        if self.bid_number > 0:
+            state.player[self.player_bids[0]["player"]]["$$$"] -= self.player_bids[0]["$$$"]
+            state.property_data[self.property]["owner"] = self.player_bids[0]["player"]
+            state.property_data[self.property]["upgrade state"] = 1
+                                   
+        self.exit_bid()
 
 
 def bankruptcy(_player: int | None = state.player_turn, cause = "bank" or "disconnected" or 1/2/3/4):
@@ -2624,7 +2670,7 @@ class trade_screen_class(utils.parent_class):
         print("    ╚═══════════════════════════════════╝ ╚═══════════════════════════════════╝")
         print()
         
-        name = ["Offer money", "Properties", "", "Accept trade", "Cancel"]
+        names = ["Offer money", "Properties", "", "Accept trade", "Cancel"]
         bools = [True, False, True, True, True]
         space = [4, 3, 3, 3, 6]
 
@@ -2634,17 +2680,20 @@ class trade_screen_class(utils.parent_class):
                break
 
         if self.curr_player == self.player_1:
-            name[2] = f"Swap to P{self.player_2['player']}"
+            names[2] = f"Swap to P{self.player_2['player']}"
         else:
-            name[2] = f"Swap to P{self.player_1['player']}"
+            names[2] = f"Swap to P{self.player_1['player']}"
 
-        # online trading doesn't need swap players button
+        if self.curr_player["accepted?"]:
+            names[3] = "un accept"
+
+        # online trading removes swap players button
         if state.online_config.game_strt_event.is_set():
             name.pop(2)
             bools.pop(2)
             space.pop(2)
 
-        for i in create_prompts(name, bools, space):
+        for i in create_prompts(names, bools, space):
             print(i)
 
         print("\n    ", end = "")
@@ -2672,8 +2721,8 @@ class trade_screen_class(utils.parent_class):
 
         # displays trade successful art
         # if players trade nothing, this variant appears
-        if not self.player_1["props"] and not self.player_2["props"] and \
-           self.player_1["$$$"] == self.player_2["$$$"] == 0:
+        if len(self.player_1["props"]) == len(self.player_2["props"]) == 0 and \
+                self.player_1["$$$"] == self.player_2["$$$"] == 0:
             print(self.nothing_art)
         else:
             print(self.prop_prop_money_art)
@@ -2699,6 +2748,16 @@ class trade_screen_class(utils.parent_class):
         
         self.is_trade = False
 
+        # alerts other players in an online game of property changes
+        if state.online_config.game_strt_event.is_set():
+
+            # since both players send a message, they each only send their own
+            if state.online_config.player_num == self.player_1["player"]:
+                for prop in self.player_1["props"]:
+                    send_data(f"propertyupdate:{prop}:{state.property_data[player_prop]['owner']}:{state.property_data[player_prop]['upgrade state']}")
+            else:
+                for prop in self.player_2["props"]:
+                    send_data(f"propertyupdate:{prop}:{state.property_data[player_prop]['owner']}:{state.property_data[player_prop]['upgrade state']}")
         # (debt checks happen after user accept,
         # hence player_1/2 isn't cleared yet)
 
@@ -2782,7 +2841,7 @@ class trade_screen_class(utils.parent_class):
                     self.curr_player = self.player_1
                 self.display_trade_window()
 
-            elif user_input in ["a", "A"]:
+            elif user_input in ["a", "A"] and not self.curr_player["accepted?"]:
                 
                 # marks the user as having accepted, switches to other player
                 if self.curr_player == self.player_1:
@@ -2805,6 +2864,25 @@ class trade_screen_class(utils.parent_class):
                 else:
                     self.display_trade_window()
 
+            elif user_input in ["u", "U"] and self.curr_player["accepted?"]:
+
+                # marks the user as having accepted, switches to other player
+                if self.curr_player == self.player_1:
+                    self.player_1["accepted?"] = False
+                    
+                    if state.online_config.game_strt_event.is_set(): # no value becomes False
+                        send_data(f"whisper:{state.trade_screen.player_2['player']}:trade:accept:")
+                    else:
+                        self.curr_player = self.player_2
+                else: 
+                    self.player_2["accepted?"] = False                    
+                    
+                    if state.online_config.game_strt_event.is_set(): # no value becomes False
+                        send_data(f"whisper:{state.trade_screen.player_1['player']}:trade:accept:")
+                    else:
+                        self.curr_player = self.player_2
+
+                self.display_trade_window()
             elif user_input in ["c", "C"]:
 
                 if state.online_config.game_strt_event.is_set():
@@ -2849,6 +2927,7 @@ class trade_screen_class(utils.parent_class):
             self.action = None
 
             broke_alert = False
+
             # ensures that if a player is in debt,
             # the appropriate screen is raised.
             if state.player[self.player_1["player"]]["$$$"] < 0:

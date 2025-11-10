@@ -136,8 +136,8 @@ def previous(arg: better_iter): return arg.__previous__()
 
 
 class better_dict(dict):
-    """you can create keys with iterables (not including strings),
-    and then access the value with any one of the items in the iterable
+    """if keys are created with iterables (not including strings),
+    you can access the value with any one of the items in the iterable
     
     default value is accessed if key not found, if there is no default
     value, KeyError is raised as normal"""
@@ -164,6 +164,12 @@ class better_dict(dict):
 
             if self._ in super().keys(): return super().__getitem__(self._)
             else: raise KeyError(f"key {key} was not found")
+
+    def __getattribute__(self, name):
+        try:
+            return super().__getattribute__(name)
+        except AttributeError: # allows access to dictionary keys as attributes
+            return self.__getitem__(name)
 
     @property
     def default(self):

@@ -219,8 +219,7 @@ class parent_class:
         """executes relevant logic for an online command"""
 
     def disconnect_management(self, quitter):
-        """handles an online player leaving mid-game
-        """ 
+        """handles an online player leaving mid-game""" 
         print(f"=== player {quitter} ({state.online_config.joined_clients[quitter - 1][0]}) has left the game! ===\n\n    ", end ="")
 
         bankruptcy(quitter, "disconnect")

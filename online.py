@@ -4,7 +4,6 @@ from socket import socket, gethostname, gethostbyname, AF_INET, SOCK_STREAM
 from os import system, name, getpid
 from time import time
 import asyncio
-
 from wcwidth import wcswidth
 from better_iterator import better_iter
 
@@ -56,6 +55,8 @@ def unsanitise(message: str, characters = {"%": "#"}):
 
     restored = []
     i = 0
+
+    # goes through message, replaces control characters
     while i < len(message):
         if message[i] == "\\":
             try: char = message[i+1]
@@ -82,12 +83,15 @@ def send_data(data: str):
     data = sanitise(data)
 
     if state.online_config.socket_type == "host":
+
+        # determines receiver, only sends message to specific socket
         if data.startswith("whisper"):
             parts = data.split(":")
             msg = data.removeprefix(f"whisper:{parts[1]}:")
             state.online_config.joined_clients[int(parts[1]) - 1][3].sendall(f"{msg}:1%".encode()) # host is always 1
             return
 
+        # host sends message to all clients
         for item in state.online_config.joined_clients:
             if not item[4]: # if socket is activated
                 continue
@@ -107,6 +111,8 @@ async def receive_data():
         """online commands that don't differ between client and host"""
 
         match arg:
+
+            # after a player has finished rolling
             case "turnfinished":
                 _, player_change, money_change, _ = online_input.split(":")
                 money_change = eval(money_change)
@@ -114,7 +120,7 @@ async def receive_data():
                 for i in range(state.players_playing):
                     state.player[i + 1]["$$$"] = money_change[i]
                 
-                # ensures player is sent to jail across all devices
+                # ensures player is sent to jail across all users
                 if player_change == 40:
                     state.player_action.send_to_jail()
                 else:
@@ -125,17 +131,19 @@ async def receive_data():
                     update_player_position(state.player[state.player_turn]["last pos"], "remove")
 
                 state.refresh_board.end_turn_logic()
-                state.refresh_board.msg_lock = False
 
+                # alerts user of turn change
                 if state.current_screen == state.refresh_board:
                     state.refresh_board()
-                elif state.online_config.player_num == state.player_turn:
+                if state.online_config.player_num == state.player_turn:
                     print("=== it's now your turn to roll ===\n\n    ", end="")
             
+            # allows a user to update any variable
             case "varupdate":
                 _, var, value, _ = online_input.split(":")
-                globals().update({var: eval(value)})
+                state.__dict__.update({var: eval(value)})
 
+            # when a player purchases a property
             case "propertyupdate":
                 _, prop, owner, upgrades, _ = online_input.split(":")
                 prop = int(prop)
@@ -150,7 +158,27 @@ async def receive_data():
                 else: state.chance.draw_card()
 
             case "auctionstart":
-                pass
+                _, props, _ = online_input.split(":")
+                props = eval(props)
+                state.display_property(*props, bid=True)
+
+            case "auction":
+                _, bid, player = online_input.split(":")
+
+                state.display_property.player_bids[int(player) - 1]["$$$"] = int(bid)
+                state.display_property.bid_number += 1
+
+                if state.display_property.bid_number > state.players_playing:
+                    state.display_property.bid_number = state.players_playing
+
+                state.display_property.countdown = 5
+
+                state.display_property.player_bids.list = sorted(
+                    state.display_property.player_bids.list,
+                    key = lambda item: item["$$$"],
+                    reverse = True
+                )
+                state.display_property(*state.display_property.property_queue)
 
             case "traderequest":
 
@@ -166,7 +194,7 @@ async def receive_data():
                 
                 state.online_config.is_trade_request = True
                 state.online_config.trade_requester = int(player)
-
+               
             case "accept trade":
                 state.online_config.is_trade_request = False
                 state.online_config.trade_requester = None
@@ -999,6 +1027,7 @@ class online_config_class(utils.parent_class):
 
     def quit_async(self):
         """quits all asynchronous tasks"""
+        print("\x1b[0J")
         if name == "nt":
             system(f"taskkill /PID {getpid()} /F")
         elif name == "posix":
